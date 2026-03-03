@@ -7,6 +7,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import trip as trip_routes
 from app.core import ConfigError, get_settings, validate_settings
 
 
@@ -44,6 +45,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(trip_routes.router, prefix="/api")
 
 
 @app.get("/health")
