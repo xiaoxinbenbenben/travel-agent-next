@@ -7,6 +7,8 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import map as map_routes
+from app.api.routes import poi as poi_routes
 from app.api.routes import trip as trip_routes
 from app.core import ConfigError, get_settings, validate_settings
 
@@ -47,6 +49,8 @@ app.add_middleware(
 )
 
 app.include_router(trip_routes.router, prefix="/api")
+app.include_router(map_routes.router, prefix="/api")
+app.include_router(poi_routes.router, prefix="/api")
 
 
 @app.get("/health")

@@ -1,5 +1,16 @@
 """业务 Schema 导出。"""
 
+from app.schemas.map import (
+    POIDetailResponse,
+    POIPhotoResponse,
+    POIInfo,
+    POISearchRequest,
+    POISearchResponse,
+    RouteInfo,
+    RouteRequest,
+    RouteResponse,
+    WeatherResponse,
+)
 from app.schemas.trip import (
     Attraction,
     Budget,
@@ -24,5 +35,13 @@ __all__ = [
     "TripPlanResponse",
     "TripRequest",
     "WeatherInfo",
+    "POIDetailResponse",
+    "POIPhotoResponse",
+    "POIInfo",
+    "POISearchRequest",
+    "POISearchResponse",
+    "RouteInfo",
+    "RouteRequest",
+    "RouteResponse",
+    "WeatherResponse",
 ]
-
