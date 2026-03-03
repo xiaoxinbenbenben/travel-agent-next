@@ -18,6 +18,7 @@ dist/
 backend/.env
 backend/.env.example
 docs/PLAN.md
+docs/reports/
 
 # Logs
 *.log

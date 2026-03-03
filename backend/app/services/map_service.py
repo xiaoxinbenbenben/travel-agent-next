@@ -2,44 +2,29 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import List
 
+from app.integrations.mcp import AmapMCPClient, get_amap_mcp_client
 from app.schemas.map import POIInfo, RouteInfo
 from app.schemas.trip import WeatherInfo
 
 
 class MapService:
-    """地图服务占位实现。后续替换为 MCP 高德调用。"""
+    """地图服务：基于 AmapMCPClient 封装业务模型。"""
 
-    def search_poi(self, keywords: str, city: str, citylimit: bool = True) -> List[POIInfo]:
-        _ = citylimit
-        return [
-            POIInfo(
-                id=f"{city}-{keywords}-001",
-                name=f"{keywords}（示例）",
-                type="景点",
-                address=f"{city}核心区域",
-                location={"longitude": 116.397428, "latitude": 39.90923},
-                tel=None,
-            )
-        ]
+    def __init__(self, client: AmapMCPClient) -> None:
+        self.client = client
 
-    def get_weather(self, city: str) -> List[WeatherInfo]:
-        today = date.today().isoformat()
-        return [
-            WeatherInfo(
-                date=today,
-                day_weather=f"{city}晴",
-                night_weather=f"{city}多云",
-                day_temp=26,
-                night_temp=18,
-                wind_direction="东北",
-                wind_power="3级",
-            )
-        ]
+    async def search_poi(self, keywords: str, city: str, citylimit: bool = True) -> List[POIInfo]:
+        payload = await self.client.search_poi(keywords=keywords, city=city, citylimit=citylimit)
+        # 服务层统一做 schema 校验，路由层拿到的始终是稳定模型。
+        return [POIInfo.model_validate(item) for item in payload]
 
-    def plan_route(
+    async def get_weather(self, city: str) -> List[WeatherInfo]:
+        payload = await self.client.get_weather(city=city)
+        return [WeatherInfo.model_validate(item) for item in payload]
+
+    async def plan_route(
         self,
         *,
         origin_address: str,
@@ -48,26 +33,25 @@ class MapService:
         destination_city: str | None = None,
         route_type: str = "walking",
     ) -> RouteInfo:
-        _ = origin_city, destination_city
-        return RouteInfo(
-            distance=3200.0,
-            duration=2400,
+        payload = await self.client.plan_route(
+            origin_address=origin_address,
+            destination_address=destination_address,
+            origin_city=origin_city,
+            destination_city=destination_city,
             route_type=route_type,
-            description=f"从“{origin_address}”到“{destination_address}”的{route_type}路线（示例）",
         )
+        return RouteInfo.model_validate(payload)
 
-    def get_poi_detail(self, poi_id: str) -> dict:
-        return {
-            "id": poi_id,
-            "name": f"POI-{poi_id}",
-            "address": "示例地址",
-            "location": "116.397428,39.90923",
-        }
+    async def get_poi_detail(self, poi_id: str) -> dict:
+        return await self.client.get_poi_detail(poi_id=poi_id)
 
 
-_map_service = MapService()
+_map_service: MapService | None = None
 
 
 def get_map_service() -> MapService:
+    global _map_service
+    if _map_service is None:
+        # 复用单例，保证整个应用共享同一个 AmapMCPClient。
+        _map_service = MapService(client=get_amap_mcp_client())
     return _map_service
-

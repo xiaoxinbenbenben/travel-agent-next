@@ -67,6 +67,10 @@ class Settings:
     port: int = 8000
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     amap_api_key: str = ""
+    # 标准 MCP 启动命令，示例：uvx amap-mcp-server
+    amap_mcp_command: str = "uvx amap-mcp-server"
+    # 默认开启 mock，避免开发环境因外部依赖不可用而中断。
+    amap_mcp_mock: bool = True
     unsplash_access_key: str = ""
     unsplash_secret_key: str = ""
     llm_model_id: str = "gpt-4o-mini"
@@ -103,6 +107,8 @@ class Settings:
                 "http://localhost:5173,http://localhost:3000",
             ),
             amap_api_key=os.getenv("AMAP_API_KEY", ""),
+            amap_mcp_command=os.getenv("AMAP_MCP_COMMAND", "uvx amap-mcp-server"),
+            amap_mcp_mock=_to_bool(os.getenv("AMAP_MCP_MOCK"), default=True),
             unsplash_access_key=os.getenv("UNSPLASH_ACCESS_KEY", ""),
             unsplash_secret_key=os.getenv("UNSPLASH_SECRET_KEY", ""),
             llm_model_id=llm_model_id,

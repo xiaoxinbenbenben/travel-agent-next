@@ -42,6 +42,8 @@ class TestSettings(unittest.TestCase):
             "UNSPLASH_ACCESS_KEY": "access",
             "UNSPLASH_SECRET_KEY": "secret",
             "AMAP_API_KEY": "amap-key",
+            "AMAP_MCP_COMMAND": "uvx amap-mcp-server",
+            "AMAP_MCP_MOCK": "false",
         }
         with patch.dict(os.environ, env, clear=True):
             settings = Settings.from_env(load_dotenv=False)
@@ -56,6 +58,8 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.unsplash_access_key, "access")
         self.assertEqual(settings.unsplash_secret_key, "secret")
         self.assertEqual(settings.amap_api_key, "amap-key")
+        self.assertEqual(settings.amap_mcp_command, "uvx amap-mcp-server")
+        self.assertFalse(settings.amap_mcp_mock)
 
 
 if __name__ == "__main__":
