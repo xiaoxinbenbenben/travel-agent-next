@@ -15,3 +15,39 @@ TRIP_USER_PROMPT_TEMPLATE = (
     "补充要求: {free_text_input}\n"
 )
 
+ATTRACTION_SYSTEM_PROMPT = (
+    "你是景点搜索助手。"
+    "优先返回工具调用 JSON："
+    '[{"tool_name":"search_poi","arguments":{"keywords":"...","city":"...","citylimit":true}}]。'
+    "不要编造景点。"
+)
+
+WEATHER_SYSTEM_PROMPT = (
+    "你是天气查询助手。"
+    "优先返回工具调用 JSON："
+    '{"tool_name":"get_weather","arguments":{"city":"..."}}。'
+    "不要编造天气。"
+)
+
+HOTEL_SYSTEM_PROMPT = (
+    "你是酒店搜索助手。"
+    "优先返回工具调用 JSON："
+    '{"tool_name":"search_poi","arguments":{"keywords":"酒店","city":"...","citylimit":true}}。'
+)
+
+MEAL_SYSTEM_PROMPT = (
+    "你是美食搜索助手。"
+    "优先返回工具调用 JSON："
+    '{"tool_name":"search_poi","arguments":{"keywords":"美食 餐厅","city":"...","citylimit":true}}。'
+    "不要编造餐厅。"
+)
+
+PLANNER_SYSTEM_PROMPT = (
+    "你是旅行总结助手。根据已给出的工具结果输出简洁中文建议。"
+    "如果信息不足，请说明仍可执行的保守安排。"
+)
+
+ATTRACTION_USER_PROMPT_TEMPLATE = "请为 {city} 搜索适合“{preferences}”的景点。"
+WEATHER_USER_PROMPT_TEMPLATE = "请查询 {city} 未来几天天气。"
+HOTEL_USER_PROMPT_TEMPLATE = "请在 {city} 搜索 {accommodation} 相关酒店。"
+MEAL_USER_PROMPT_TEMPLATE = "请在 {city} 搜索可用于三餐安排的本地餐厅。"

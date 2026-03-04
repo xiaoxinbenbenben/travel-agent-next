@@ -101,7 +101,30 @@ class AmapMCPClient:
         )
         parsed = self._coerce_json(raw)
         items = self._extract_poi_items(parsed)
-        return [self._normalize_poi_item(item) for item in items]
+        normalized = [self._normalize_poi_item(item) for item in items]
+
+        # maps_text_search 常不返回 location，补一次 detail 查询拿完整坐标。
+        for poi in normalized:
+            poi_id = str(poi.get("id", "")).strip()
+            if not poi_id or not self._is_empty_location(poi.get("location")):
+                continue
+            try:
+                detail = await self.get_poi_detail(poi_id=poi_id)
+            except Exception:
+                continue
+            if not isinstance(detail, dict):
+                continue
+
+            if detail.get("location") is not None:
+                poi["location"] = self._parse_location(detail.get("location"))
+            if not poi.get("address") and detail.get("address"):
+                poi["address"] = str(detail.get("address", ""))
+            if not poi.get("type") and detail.get("type"):
+                poi["type"] = str(detail.get("type", ""))
+            if not poi.get("tel") and detail.get("tel"):
+                poi["tel"] = str(detail.get("tel", ""))
+
+        return normalized
 
     async def get_weather(self, *, city: str) -> List[Dict[str, Any]]:
         if self.mock_mode:
@@ -146,12 +169,14 @@ class AmapMCPClient:
             "transit": "maps_direction_transit_integrated_by_address",
         }
         tool_name = tool_map.get(route_type, "maps_direction_walking_by_address")
+        origin_for_query = self._augment_address_with_city(origin_address, origin_city)
+        destination_for_query = self._augment_address_with_city(destination_address, destination_city)
         # 路由工具参数名对齐旧接口字段，便于 API 层透传。
         raw = await self._stdio_client.call_tool(
             tool_name,
             {
-                "origin_address": origin_address,
-                "destination_address": destination_address,
+                "origin_address": origin_for_query,
+                "destination_address": destination_for_query,
                 "origin_city": origin_city,
                 "destination_city": destination_city,
             },
@@ -270,6 +295,32 @@ class AmapMCPClient:
             "tel": str(tel) if tel else None,
         }
 
+    @staticmethod
+    def _is_empty_location(location: Any) -> bool:
+        parsed = AmapMCPClient._parse_location(location)
+        return parsed["longitude"] == 0.0 and parsed["latitude"] == 0.0
+
+    @staticmethod
+    def _augment_address_with_city(address: str, city: str | None) -> str:
+        base = address.strip()
+        if not base:
+            return address
+        if not city:
+            return base
+
+        city_text = city.strip()
+        if not city_text:
+            return base
+        if city_text in base:
+            return base
+
+        if city_text.endswith(("市", "区", "县", "省")):
+            short_city = city_text[:-1]
+            if short_city and short_city in base:
+                return base
+
+        return f"{city_text}{base}"
+
     def _normalize_weather_items(self, parsed: Any) -> List[Dict[str, Any]]:
         if isinstance(parsed, dict) and isinstance(parsed.get("forecasts"), list) and parsed["forecasts"]:
             casts = parsed["forecasts"]
@@ -304,6 +355,7 @@ class AmapMCPClient:
         destination_address: str,
     ) -> Dict[str, Any]:
         metrics = AmapMCPClient._extract_route_metrics(parsed)
+        route_error = AmapMCPClient._extract_route_error(parsed)
         if metrics is not None:
             distance, duration = metrics
             description = ""
@@ -324,7 +376,11 @@ class AmapMCPClient:
             "distance": 0.0,
             "duration": 0,
             "route_type": route_type,
-            "description": f"路线结果待解析: {origin_address} -> {destination_address}",
+            "description": (
+                f"路线规划失败: {route_error}"
+                if route_error
+                else f"路线结果待解析: {origin_address} -> {destination_address}"
+            ),
         }
 
     @staticmethod
@@ -383,6 +439,15 @@ class AmapMCPClient:
             return distance, duration
 
         return None
+
+    @staticmethod
+    def _extract_route_error(parsed: Any) -> str:
+        if isinstance(parsed, dict):
+            for key in ("error", "message", "msg"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
 
     @staticmethod
     def _to_float(value: Any, default: float = 0.0) -> float:

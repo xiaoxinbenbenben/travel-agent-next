@@ -6,15 +6,23 @@ import unittest
 from fastapi.testclient import TestClient
 
 # 在导入 app 前注入必要环境变量，避免启动期配置校验失败。
-os.environ.setdefault("AMAP_API_KEY", "test-amap-key")
+os.environ["AMAP_API_KEY"] = "test-amap-key"
+os.environ["AMAP_MCP_MOCK"] = "true"
 
 from app.main import app
+from app.core.config import get_settings
+from app.integrations.mcp.amap_client import get_amap_mcp_client
+import app.services.map_service as map_service_module
 
 
 class TestTripApiContract(unittest.TestCase):
     """/api/trip/plan 契约测试。"""
 
     def setUp(self) -> None:
+        # 测试隔离：重置缓存与单例，确保按当前环境变量初始化。
+        get_settings.cache_clear()
+        get_amap_mcp_client.cache_clear()
+        map_service_module._map_service = None
         self.client = TestClient(app)
 
     def test_plan_trip_success_contract(self) -> None:
@@ -41,6 +49,7 @@ class TestTripApiContract(unittest.TestCase):
         self.assertEqual(data["city"], "北京")
         self.assertEqual(data["start_date"], "2026-04-01")
         self.assertEqual(data["end_date"], "2026-04-03")
+        self.assertEqual(len(data["days"]), 3)
         self.assertIsInstance(data["days"], list)
         self.assertGreaterEqual(len(data["days"]), 1)
         self.assertIsInstance(data["weather_info"], list)
@@ -60,6 +69,29 @@ class TestTripApiContract(unittest.TestCase):
         self.assertIn("name", first_day["hotel"])
         self.assertIn("address", first_day["hotel"])
         self.assertIn("estimated_cost", first_day["hotel"])
+        self.assertGreaterEqual(first_day["hotel"]["estimated_cost"], 0)
+
+        self.assertGreaterEqual(len(first_day["meals"]), 3)
+        self.assertIn("type", first_day["meals"][0])
+        self.assertIn("estimated_cost", first_day["meals"][0])
+
+        self.assertIsInstance(data["weather_info"][0], dict)
+        self.assertIn("date", data["weather_info"][0])
+        self.assertIn("day_weather", data["weather_info"][0])
+
+        budget = data["budget"]
+        self.assertIn("total_attractions", budget)
+        self.assertIn("total_hotels", budget)
+        self.assertIn("total_meals", budget)
+        self.assertIn("total_transportation", budget)
+        self.assertIn("total", budget)
+        self.assertEqual(
+            budget["total"],
+            budget["total_attractions"]
+            + budget["total_hotels"]
+            + budget["total_meals"]
+            + budget["total_transportation"],
+        )
 
     def test_plan_trip_invalid_request(self) -> None:
         payload = {

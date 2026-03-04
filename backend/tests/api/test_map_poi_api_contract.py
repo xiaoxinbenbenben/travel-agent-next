@@ -5,15 +5,23 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("AMAP_API_KEY", "test-amap-key")
+os.environ["AMAP_API_KEY"] = "test-amap-key"
+os.environ["AMAP_MCP_MOCK"] = "true"
 
 from app.main import app
+from app.core.config import get_settings
+from app.integrations.mcp.amap_client import get_amap_mcp_client
+import app.services.map_service as map_service_module
 
 
 class TestMapPoiApiContract(unittest.TestCase):
     """Map/POI 契约测试。"""
 
     def setUp(self) -> None:
+        # 测试隔离：重置缓存与单例，确保按当前环境变量初始化。
+        get_settings.cache_clear()
+        get_amap_mcp_client.cache_clear()
+        map_service_module._map_service = None
         self.client = TestClient(app)
 
     def test_map_poi_search(self) -> None:

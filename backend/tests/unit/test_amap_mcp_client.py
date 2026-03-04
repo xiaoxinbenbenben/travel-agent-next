@@ -69,34 +69,53 @@ class TestAmapMCPClient(unittest.TestCase):
 
     def test_search_poi_typecode_mapping(self) -> None:
         class _FakeStdio:
-            async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-                _ = tool_name, arguments
-                return {
-                    "pois": [
-                        {
-                            "id": "poi-2",
-                            "name": "国家博物馆",
-                            "address": "北京市东城区东长安街16号",
-                            "typecode": "140100",
-                        }
-                    ]
-                }
+            def __init__(self) -> None:
+                self.calls: List[Dict[str, Any]] = []
 
+            async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+                self.calls.append({"tool_name": tool_name, "arguments": arguments})
+                if tool_name == "maps_text_search":
+                    return {
+                        "pois": [
+                            {
+                                "id": "poi-2",
+                                "name": "国家博物馆",
+                                "address": "北京市东城区东长安街16号",
+                                "typecode": "140100",
+                            }
+                        ]
+                    }
+                if tool_name == "maps_search_detail":
+                    return {
+                        "id": "poi-2",
+                        "name": "国家博物馆",
+                        "address": "北京市东城区东长安街16号",
+                        "location": "116.4074,39.9042",
+                        "type": "科教文化服务;博物馆",
+                    }
+                return {}
+
+        fake = _FakeStdio()
         client = AmapMCPClient(
             api_key="test-key",
             command="uvx amap-mcp-server",
             mock_mode=False,
-            stdio_client=_FakeStdio(),  # type: ignore[arg-type]
+            stdio_client=fake,  # type: ignore[arg-type]
         )
         result = asyncio.run(client.search_poi(keywords="博物馆", city="北京"))
         self.assertEqual(result[0]["type"], "140100")
-        self.assertEqual(result[0]["location"]["longitude"], 0.0)
-        self.assertEqual(result[0]["location"]["latitude"], 0.0)
+        self.assertEqual(result[0]["location"]["longitude"], 116.4074)
+        self.assertEqual(result[0]["location"]["latitude"], 39.9042)
+        self.assertEqual(fake.calls[0]["tool_name"], "maps_text_search")
+        self.assertEqual(fake.calls[1]["tool_name"], "maps_search_detail")
 
     def test_plan_route_with_nested_route_paths(self) -> None:
         class _FakeStdio:
+            def __init__(self) -> None:
+                self.calls: List[Dict[str, Any]] = []
+
             async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
-                _ = tool_name, arguments
+                self.calls.append({"tool_name": tool_name, "arguments": arguments})
                 return {
                     "route": {
                         "paths": [
@@ -108,11 +127,12 @@ class TestAmapMCPClient(unittest.TestCase):
                     }
                 }
 
+        fake = _FakeStdio()
         client = AmapMCPClient(
             api_key="test-key",
             command="uvx amap-mcp-server",
             mock_mode=False,
-            stdio_client=_FakeStdio(),  # type: ignore[arg-type]
+            stdio_client=fake,  # type: ignore[arg-type]
         )
         result = asyncio.run(
             client.plan_route(
@@ -125,6 +145,33 @@ class TestAmapMCPClient(unittest.TestCase):
         )
         self.assertEqual(result["distance"], 1064.0)
         self.assertEqual(result["duration"], 851)
+        self.assertEqual(fake.calls[0]["arguments"]["origin_address"], "北京天安门")
+        self.assertEqual(fake.calls[0]["arguments"]["destination_address"], "北京故宫")
+
+    def test_plan_route_error_message_passthrough(self) -> None:
+        class _FakeStdio:
+            async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+                _ = tool_name, arguments
+                return {"error": "Failed to geocode destination address: Geocoding failed"}
+
+        client = AmapMCPClient(
+            api_key="test-key",
+            command="uvx amap-mcp-server",
+            mock_mode=False,
+            stdio_client=_FakeStdio(),  # type: ignore[arg-type]
+        )
+        result = asyncio.run(
+            client.plan_route(
+                origin_address="外滩",
+                destination_address="东方明珠",
+                origin_city="上海",
+                destination_city="上海",
+                route_type="walking",
+            )
+        )
+        self.assertEqual(result["distance"], 0.0)
+        self.assertEqual(result["duration"], 0)
+        self.assertIn("Failed to geocode", result["description"])
 
 
 if __name__ == "__main__":
