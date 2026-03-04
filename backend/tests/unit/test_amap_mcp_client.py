@@ -67,6 +67,65 @@ class TestAmapMCPClient(unittest.TestCase):
         self.assertEqual(result[0]["name"], "故宫")
         self.assertEqual(result[0]["location"]["longitude"], 116.397428)
 
+    def test_search_poi_typecode_mapping(self) -> None:
+        class _FakeStdio:
+            async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+                _ = tool_name, arguments
+                return {
+                    "pois": [
+                        {
+                            "id": "poi-2",
+                            "name": "国家博物馆",
+                            "address": "北京市东城区东长安街16号",
+                            "typecode": "140100",
+                        }
+                    ]
+                }
+
+        client = AmapMCPClient(
+            api_key="test-key",
+            command="uvx amap-mcp-server",
+            mock_mode=False,
+            stdio_client=_FakeStdio(),  # type: ignore[arg-type]
+        )
+        result = asyncio.run(client.search_poi(keywords="博物馆", city="北京"))
+        self.assertEqual(result[0]["type"], "140100")
+        self.assertEqual(result[0]["location"]["longitude"], 0.0)
+        self.assertEqual(result[0]["location"]["latitude"], 0.0)
+
+    def test_plan_route_with_nested_route_paths(self) -> None:
+        class _FakeStdio:
+            async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+                _ = tool_name, arguments
+                return {
+                    "route": {
+                        "paths": [
+                            {
+                                "distance": "1064",
+                                "duration": "851",
+                            }
+                        ]
+                    }
+                }
+
+        client = AmapMCPClient(
+            api_key="test-key",
+            command="uvx amap-mcp-server",
+            mock_mode=False,
+            stdio_client=_FakeStdio(),  # type: ignore[arg-type]
+        )
+        result = asyncio.run(
+            client.plan_route(
+                origin_address="天安门",
+                destination_address="故宫",
+                origin_city="北京",
+                destination_city="北京",
+                route_type="walking",
+            )
+        )
+        self.assertEqual(result["distance"], 1064.0)
+        self.assertEqual(result["duration"], 851)
+
 
 if __name__ == "__main__":
     unittest.main()

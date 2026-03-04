@@ -225,15 +225,21 @@ class AmapMCPClient:
     def _parse_location(location: Any) -> Dict[str, float]:
         if isinstance(location, dict):
             return {
-                "longitude": float(location.get("longitude", 0.0)),
-                "latitude": float(location.get("latitude", 0.0)),
+                "longitude": AmapMCPClient._to_float(
+                    location.get("longitude", location.get("lon", 0.0)),
+                    0.0,
+                ),
+                "latitude": AmapMCPClient._to_float(
+                    location.get("latitude", location.get("lat", 0.0)),
+                    0.0,
+                ),
             }
         if isinstance(location, str) and "," in location:
             lon, lat = location.split(",", 1)
-            try:
-                return {"longitude": float(lon), "latitude": float(lat)}
-            except ValueError:
-                return {"longitude": 0.0, "latitude": 0.0}
+            return {
+                "longitude": AmapMCPClient._to_float(lon, 0.0),
+                "latitude": AmapMCPClient._to_float(lat, 0.0),
+            }
         return {"longitude": 0.0, "latitude": 0.0}
 
     @staticmethod
@@ -248,19 +254,25 @@ class AmapMCPClient:
         return []
 
     def _normalize_poi_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        location = item.get("location")
+        if location is None and item.get("lon") is not None and item.get("lat") is not None:
+            location = {"lon": item.get("lon"), "lat": item.get("lat")}
+
+        poi_type = item.get("type", item.get("typecode", ""))
+        tel = item.get("tel", item.get("phone"))
+
         return {
             "id": str(item.get("id", item.get("poi_id", ""))),
             "name": str(item.get("name", "")),
-            "type": str(item.get("type", "")),
-            "address": str(item.get("address", "")),
-            "location": self._parse_location(item.get("location")),
-            "tel": str(item.get("tel")) if item.get("tel") else None,
+            "type": str(poi_type),
+            "address": str(item.get("address", item.get("formatted_address", ""))),
+            "location": self._parse_location(location),
+            "tel": str(tel) if tel else None,
         }
 
     def _normalize_weather_items(self, parsed: Any) -> List[Dict[str, Any]]:
         if isinstance(parsed, dict) and isinstance(parsed.get("forecasts"), list) and parsed["forecasts"]:
-            first = parsed["forecasts"][0]
-            casts = first.get("casts", []) if isinstance(first, dict) else []
+            casts = parsed["forecasts"]
             result: List[Dict[str, Any]] = []
             for cast in casts:
                 if not isinstance(cast, dict):
@@ -291,20 +303,21 @@ class AmapMCPClient:
         origin_address: str,
         destination_address: str,
     ) -> Dict[str, Any]:
-        if isinstance(parsed, dict) and isinstance(parsed.get("distance"), (int, float, str)):
-            try:
-                distance = float(parsed.get("distance", 0.0))
-            except (TypeError, ValueError):
-                distance = 0.0
-            try:
-                duration = int(float(parsed.get("duration", 0)))
-            except (TypeError, ValueError):
-                duration = 0
+        metrics = AmapMCPClient._extract_route_metrics(parsed)
+        if metrics is not None:
+            distance, duration = metrics
+            description = ""
+            if isinstance(parsed, dict):
+                description = str(parsed.get("description", ""))
+                route = parsed.get("route")
+                if not description and isinstance(route, dict):
+                    description = str(route.get("description", ""))
+
             return {
                 "distance": distance,
                 "duration": duration,
                 "route_type": route_type,
-                "description": str(parsed.get("description", "")) or f"{origin_address} -> {destination_address}",
+                "description": description or f"{origin_address} -> {destination_address}",
             }
 
         return {
@@ -313,6 +326,77 @@ class AmapMCPClient:
             "route_type": route_type,
             "description": f"路线结果待解析: {origin_address} -> {destination_address}",
         }
+
+    @staticmethod
+    def _extract_route_metrics(parsed: Any) -> tuple[float, int] | None:
+        if not isinstance(parsed, dict):
+            return None
+
+        # 兼容扁平结构：{"distance": "...", "duration": "..."}
+        if "distance" in parsed or "duration" in parsed:
+            distance = AmapMCPClient._to_float(parsed.get("distance", 0.0), 0.0)
+            duration = AmapMCPClient._to_int(parsed.get("duration", 0), 0)
+            if distance > 0 or duration > 0:
+                return distance, duration
+
+        route = parsed.get("route")
+        if not isinstance(route, dict):
+            return None
+
+        # amap-mcp-server 常见格式：route.paths[0].distance / duration
+        paths = route.get("paths")
+        if isinstance(paths, list):
+            for path in paths:
+                if not isinstance(path, dict):
+                    continue
+                distance = AmapMCPClient._to_float(
+                    path.get("distance", route.get("distance", 0.0)),
+                    0.0,
+                )
+                duration = AmapMCPClient._to_int(
+                    path.get("duration", route.get("duration", 0)),
+                    0,
+                )
+                if distance > 0 or duration > 0:
+                    return distance, duration
+
+        # 公交场景：route.distance + route.transits[0].duration（或 transits[0].distance）
+        transits = route.get("transits")
+        if isinstance(transits, list):
+            for transit in transits:
+                if not isinstance(transit, dict):
+                    continue
+                distance = AmapMCPClient._to_float(
+                    transit.get("distance", route.get("distance", 0.0)),
+                    0.0,
+                )
+                duration = AmapMCPClient._to_int(
+                    transit.get("duration", route.get("duration", 0)),
+                    0,
+                )
+                if distance > 0 or duration > 0:
+                    return distance, duration
+
+        distance = AmapMCPClient._to_float(route.get("distance", 0.0), 0.0)
+        duration = AmapMCPClient._to_int(route.get("duration", 0), 0)
+        if distance > 0 or duration > 0:
+            return distance, duration
+
+        return None
+
+    @staticmethod
+    def _to_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _to_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
 
 
 @lru_cache()

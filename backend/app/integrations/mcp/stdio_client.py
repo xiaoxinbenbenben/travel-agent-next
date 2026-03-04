@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastmcp import Client
+from fastmcp.client.transports import StdioTransport
 
 from app.core import ExternalServiceError
 
@@ -43,13 +44,12 @@ class MCPStdioClient:
                 self._client = await self._context.__aenter__()
             return
 
-        # fastmcp 使用 transport 配置描述 stdio 子进程启动方式。
-        transport = {
-            "transport": "stdio",
-            "command": self.command,
-            "args": self.args,
-            "env": self.env if self.env else None,
-        }
+        # fastmcp 3.x 使用 StdioTransport 描述 stdio 子进程启动方式。
+        transport = StdioTransport(
+            command=self.command,
+            args=self.args,
+            env=self.env if self.env else None,
+        )
         self._context = Client(transport, timeout=self.timeout_seconds)
         self._client = await self._context.__aenter__()
 
