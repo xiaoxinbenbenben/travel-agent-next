@@ -47,18 +47,22 @@ class MiniAgent:
                         result=result,
                     )
                 )
+                tool_call_payload = json.dumps(
+                    {"tool_name": call.tool_name, "arguments": call.arguments},
+                    ensure_ascii=False,
+                )
+                tool_result_payload = json.dumps(result, ensure_ascii=False)
                 history.append(
                     {
                         "role": "assistant",
-                        "content": content or f"[TOOL_CALL:{call.tool_name}]",
+                        "content": tool_call_payload,
                     }
                 )
                 history.append(
                     {
-                        "role": "tool",
-                        "content": json.dumps(result, ensure_ascii=False),
+                        "role": "user",
+                        "content": f"[TOOL_RESULT:{call.tool_name}] {tool_result_payload}",
                     }
                 )
 
         return AgentRunResult(content=final_content, traces=traces)
-
