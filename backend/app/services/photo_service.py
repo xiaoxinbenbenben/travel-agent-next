@@ -39,8 +39,11 @@ def _build_default_photo_service() -> PhotoService:
     return PhotoService(client=client)
 
 
-_photo_service = _build_default_photo_service()
+_photo_service: PhotoService | None = None
 
 
 def get_photo_service() -> PhotoService:
+    global _photo_service
+    if _photo_service is None:
+        _photo_service = _build_default_photo_service()
     return _photo_service

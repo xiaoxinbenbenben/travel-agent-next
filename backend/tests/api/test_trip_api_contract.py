@@ -13,6 +13,7 @@ from app.main import app
 from app.core.config import get_settings
 from app.integrations.mcp.amap_client import get_amap_mcp_client
 import app.services.map_service as map_service_module
+import app.services.photo_service as photo_service_module
 
 
 class TestTripApiContract(unittest.TestCase):
@@ -20,9 +21,16 @@ class TestTripApiContract(unittest.TestCase):
 
     def setUp(self) -> None:
         # 测试隔离：重置缓存与单例，确保按当前环境变量初始化。
+        os.environ["LLM_API_KEY"] = ""
+        os.environ["OPENAI_API_KEY"] = ""
+        os.environ["LLM_BASE_URL"] = ""
+        os.environ["OPENAI_BASE_URL"] = ""
+        os.environ["UNSPLASH_ACCESS_KEY"] = ""
+        os.environ["UNSPLASH_SECRET_KEY"] = ""
         get_settings.cache_clear()
         get_amap_mcp_client.cache_clear()
         map_service_module._map_service = None
+        photo_service_module._photo_service = None
         self.client = TestClient(app)
 
     def test_plan_trip_success_contract(self) -> None:
@@ -33,8 +41,8 @@ class TestTripApiContract(unittest.TestCase):
             "travel_days": 3,
             "transportation": "公共交通",
             "accommodation": "经济型酒店",
-            "preferences": ["历史文化", "美食"],
-            "free_text_input": "希望多安排博物馆",
+            "preferences": ["自然景观", "历史文化"],
+            "free_text_input": "",
         }
 
         response = self.client.post("/api/trip/plan", json=payload)
@@ -60,6 +68,7 @@ class TestTripApiContract(unittest.TestCase):
         self.assertEqual(first_day["date"], "2026-04-01")
         self.assertEqual(first_day["day_index"], 0)
         self.assertIn("description", first_day)
+        self.assertIn("自然景观", first_day["description"])
         self.assertEqual(first_day["transportation"], "公共交通")
         self.assertEqual(first_day["accommodation"], "经济型酒店")
         self.assertIsInstance(first_day["attractions"], list)
@@ -75,9 +84,14 @@ class TestTripApiContract(unittest.TestCase):
         self.assertIn("type", first_day["meals"][0])
         self.assertIn("estimated_cost", first_day["meals"][0])
 
+        second_day = data["days"][1]
+        self.assertIn("历史文化", second_day["description"])
+
         self.assertIsInstance(data["weather_info"][0], dict)
-        self.assertIn("date", data["weather_info"][0])
+        self.assertEqual(data["weather_info"][0]["date"], "2026-04-01")
         self.assertIn("day_weather", data["weather_info"][0])
+        self.assertEqual(data["weather_info"][1]["day_weather"], "待查询")
+        self.assertIn("自然景观、历史文化", data["overall_suggestions"])
 
         budget = data["budget"]
         self.assertIn("total_attractions", budget)

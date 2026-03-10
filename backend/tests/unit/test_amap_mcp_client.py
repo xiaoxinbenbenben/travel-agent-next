@@ -72,6 +72,13 @@ class TestAmapMCPClient(unittest.TestCase):
             def __init__(self) -> None:
                 self.calls: List[Dict[str, Any]] = []
 
+            async def list_tools(self) -> Any:
+                return [
+                    {"name": "amap_maps_text_search"},
+                    {"name": "amap_maps_search_detail"},
+                    {"name": "amap_maps_weather"},
+                ]
+
             async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
                 self.calls.append({"tool_name": tool_name, "arguments": arguments})
                 if tool_name == "maps_text_search":
@@ -102,12 +109,19 @@ class TestAmapMCPClient(unittest.TestCase):
             mock_mode=False,
             stdio_client=fake,  # type: ignore[arg-type]
         )
-        result = asyncio.run(client.search_poi(keywords="博物馆", city="北京"))
+        with self.assertLogs("app.integrations.mcp.amap_client", level="INFO") as captured:
+            result = asyncio.run(client.search_poi(keywords="博物馆", city="北京"))
         self.assertEqual(result[0]["type"], "140100")
         self.assertEqual(result[0]["location"]["longitude"], 116.4074)
         self.assertEqual(result[0]["location"]["latitude"], 39.9042)
         self.assertEqual(fake.calls[0]["tool_name"], "maps_text_search")
         self.assertEqual(fake.calls[1]["tool_name"], "maps_search_detail")
+        joined = "\n".join(captured.output)
+        self.assertIn("高德POI搜索", joined)
+        self.assertIn("detail补全=1", joined)
+        self.assertIn("工具 'amap_maps_text_search' 已注册", joined)
+        self.assertIn("工具 'amap_maps_search_detail' 已注册", joined)
+        self.assertIn("MCP工具 'amap' 已展开为 3 个独立工具", joined)
 
     def test_plan_route_with_nested_route_paths(self) -> None:
         class _FakeStdio:

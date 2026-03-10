@@ -4,6 +4,7 @@ import asyncio
 import unittest
 from dataclasses import dataclass
 from typing import Any, Dict, List
+from unittest.mock import patch
 
 from app.integrations.mcp import MCPStdioClient
 
@@ -42,16 +43,28 @@ class TestMCPStdioClient(unittest.TestCase):
 
     def test_list_tools_normalize(self) -> None:
         client = MCPStdioClient(command="uvx", args=["amap-mcp-server"], client=_FakeMCPClient())
-        tools = asyncio.run(client.list_tools())
+        with patch("app.integrations.mcp.stdio_client.logger.debug") as debug_log:
+            with self.assertLogs("app.integrations.mcp.stdio_client", level="INFO") as captured:
+                tools = asyncio.run(client.list_tools())
         self.assertEqual(len(tools), 1)
         self.assertEqual(tools[0]["name"], "maps_text_search")
+        joined = "\n".join(captured.output)
+        self.assertIn("使用 Stdio 传输", joined)
+        self.assertIn("连接到 MCP 服务器", joined)
+        self.assertIn("连接成功", joined)
+        self.assertNotIn("Processing request of type ListToolsRequest", joined)
+        debug_log.assert_not_called()
 
     def test_call_tool_normalize_content(self) -> None:
         fake = _FakeMCPClient()
         client = MCPStdioClient(command="uvx", args=["amap-mcp-server"], client=fake)
-        result = asyncio.run(client.call_tool("maps_text_search", {"keywords": "故宫"}))
+        with patch("app.integrations.mcp.stdio_client.logger.debug") as debug_log:
+            with self.assertLogs("app.integrations.mcp.stdio_client", level="INFO") as captured:
+                result = asyncio.run(client.call_tool("maps_text_search", {"keywords": "故宫"}))
         self.assertEqual(fake.tool_calls[0]["tool_name"], "maps_text_search")
         self.assertEqual(result, '{"ok": true}')
+        self.assertNotIn("Processing request of type CallToolRequest", "\n".join(captured.output))
+        debug_log.assert_not_called()
 
 
 if __name__ == "__main__":

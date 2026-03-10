@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
 from app.core import ExternalServiceError
+
+logger = logging.getLogger(__name__)
 
 
 class MCPStdioClient:
@@ -36,12 +39,17 @@ class MCPStdioClient:
         if self._client is not None:
             return
 
+        command_text = " ".join([self.command, *self.args]).strip()
+        logger.info("📝 使用 Stdio 传输 (命令): %s", command_text)
+        logger.info("🔗 连接到 MCP 服务器...")
+
         if self._injected_client is not None:
             # 测试场景可注入 fake client，避免真实拉起子进程。
             self._client = self._injected_client
             if hasattr(self._client, "__aenter__"):
                 self._context = self._client
                 self._client = await self._context.__aenter__()
+            logger.info("✅ 连接成功！")
             return
 
         # fastmcp 3.x 使用 StdioTransport 描述 stdio 子进程启动方式。
@@ -52,10 +60,12 @@ class MCPStdioClient:
         )
         self._context = Client(transport, timeout=self.timeout_seconds)
         self._client = await self._context.__aenter__()
+        logger.info("✅ 连接成功！")
 
     async def close(self) -> None:
         if self._context is not None:
             await self._context.__aexit__(None, None, None)
+            logger.info("🔌 连接已断开")
         self._context = None
         self._client = None
 

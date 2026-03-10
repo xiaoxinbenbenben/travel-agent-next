@@ -11,11 +11,21 @@ from app.core.errors import (
     ValidationError,
     to_http_exception,
 )
+from app.core.observability import (
+    build_shutdown_banner,
+    build_startup_banner,
+    configure_logging,
+    log_duration,
+)
 
 __all__ = [
     "AppError",
+    "build_shutdown_banner",
+    "build_startup_banner",
+    "configure_logging",
     "ConfigError",
     "ExternalServiceError",
+    "log_duration",
     "NotFoundError",
     "Settings",
     "ToolExecutionError",

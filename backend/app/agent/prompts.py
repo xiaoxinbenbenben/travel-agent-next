@@ -53,8 +53,13 @@ MEAL_SYSTEM_PROMPT = (
 )
 
 PLANNER_SYSTEM_PROMPT = (
-    "你是旅行总结助手。根据已给出的工具结果输出简洁中文建议。"
-    "如果信息不足，请说明仍可执行的保守安排。"
+    "你是旅行排程助手。你将收到已经完成的工具结果摘要。"
+    "你的任务是基于候选景点、天气、酒店、餐饮和用户补充要求，输出最终结构化行程 JSON。"
+    "不要再调用工具，不要输出 Markdown，不要解释，只输出一个 JSON 对象。"
+    'JSON 结构必须为：{"days":[{"day_index":0,"theme":"...","description":"...",'
+    '"attraction_poi_ids":["..."],"meal_names":{"breakfast":"...","lunch":"...","dinner":"..."},'
+    '"hotel_name":"..."}],"overall_suggestions":"..."}。'
+    "必须覆盖所有旅行天数；若候选不足，可减少单日景点数量，但不得编造不存在的 POI/酒店/餐厅。"
     + _TOOL_RESULT_GUIDE
 )
 
@@ -62,3 +67,13 @@ ATTRACTION_USER_PROMPT_TEMPLATE = "请为 {city} 搜索适合“{preferences}”
 WEATHER_USER_PROMPT_TEMPLATE = "请查询 {city} 未来几天天气。"
 HOTEL_USER_PROMPT_TEMPLATE = "请在 {city} 搜索 {accommodation} 相关酒店。"
 MEAL_USER_PROMPT_TEMPLATE = "请在 {city} 搜索可用于三餐安排的本地餐厅。"
+PLANNER_USER_PROMPT_TEMPLATE = (
+    "请基于以下已完成的工具结果生成最终行程。\n"
+    "要求：\n"
+    "1. 保持用户 preferences 作为行程主线。\n"
+    "2. 合理吸收 free_text_input 中的自由要求。\n"
+    "3. 只使用候选池里真实存在的 POI ID、酒店名、餐厅名。\n"
+    "4. 必须覆盖全部旅行天数。\n"
+    "5. 只输出 JSON，不要输出额外说明。\n\n"
+    "{planner_context}"
+)

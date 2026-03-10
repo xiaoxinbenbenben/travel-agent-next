@@ -7,29 +7,40 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core import (
+    ConfigError,
+    build_shutdown_banner,
+    build_startup_banner,
+    configure_logging,
+    get_settings,
+    validate_settings,
+)
 from app.api.routes import map as map_routes
 from app.api.routes import poi as poi_routes
 from app.api.routes import trip as trip_routes
-from app.core import ConfigError, get_settings, validate_settings
 
-
-logger = logging.getLogger(__name__)
 settings = get_settings()
+
+configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """应用生命周期：启动时执行配置校验。"""
+    logger.info(build_startup_banner(settings))
     try:
         warnings = validate_settings(settings)
     except ConfigError:
-        logger.exception("配置校验失败，服务终止启动")
+        logger.exception("❌ 配置验证失败，服务终止启动")
         raise
 
     for warning in warnings:
         logger.warning(warning)
 
+    logger.info("✅ 配置验证通过")
     yield
+    logger.info(build_shutdown_banner())
 
 
 app = FastAPI(

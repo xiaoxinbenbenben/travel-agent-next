@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shlex
 from datetime import date
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
-from app.core import NotFoundError, ValidationError, get_settings
+from app.core import NotFoundError, ValidationError, get_settings, log_duration
 from app.integrations.mcp.stdio_client import MCPStdioClient
 
 _JSON_BLOCK_PATTERN = re.compile(r"(\{.*\}|\[.*\])", re.DOTALL)
+logger = logging.getLogger(__name__)
 
 
 class AmapMCPClient:
@@ -33,6 +35,8 @@ class AmapMCPClient:
         self.command = command
         # mock 模式用于离线开发；关闭后走真实 MCP stdio 调用。
         self.mock_mode = mock_mode
+        self._native_tools_logged = False
+        self._native_tool_names: List[str] = []
 
         if stdio_client is not None:
             self._stdio_client = stdio_client
@@ -52,8 +56,7 @@ class AmapMCPClient:
         if self.mock_mode:
             return ["search_poi", "get_weather", "plan_route", "get_poi_detail"]
 
-        tools = await self._stdio_client.list_tools()
-        return [item.get("name", "") for item in tools if item.get("name")]
+        return await self._log_native_tools_once()
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         if tool_name == "search_poi":
@@ -78,72 +81,100 @@ class AmapMCPClient:
         raise NotFoundError(f"不支持的工具: {tool_name}", details={"tool_name": tool_name})
 
     async def search_poi(self, *, keywords: str, city: str, citylimit: bool = True) -> List[Dict[str, Any]]:
-        if self.mock_mode:
-            return [
-                {
-                    "id": f"{city}-{keywords}-001",
-                    "name": f"{keywords}（示例）",
-                    "type": "景点",
-                    "address": f"{city}核心区域",
-                    "location": {"longitude": 116.397428, "latitude": 39.90923},
-                    "tel": None,
-                }
-            ]
+        detail_fetch_count = 0
+        normalized: List[Dict[str, Any]]
+        with log_duration(
+            logger,
+            "高德POI搜索",
+            start_message=f"🗺️ 高德POI搜索开始 | keywords={keywords} | city={city}",
+            success_message=f"🗺️ 高德POI搜索完成 | keywords={keywords} | city={city}",
+        ):
+            if self.mock_mode:
+                normalized = [
+                    {
+                        "id": f"{city}-{keywords}-001",
+                        "name": f"{keywords}（示例）",
+                        "type": "景点",
+                        "address": f"{city}核心区域",
+                        "location": {"longitude": 116.397428, "latitude": 39.90923},
+                        "tel": None,
+                    }
+                ]
+            else:
+                await self._log_native_tools_once()
+                # 工具名映射到 amap-mcp-server 的原生工具名。
+                raw = await self._stdio_client.call_tool(
+                    "maps_text_search",
+                    {
+                        "keywords": keywords,
+                        "city": city,
+                        "citylimit": str(citylimit).lower(),
+                    },
+                )
+                parsed = self._coerce_json(raw)
+                items = self._extract_poi_items(parsed)
+                normalized = [self._normalize_poi_item(item) for item in items]
 
-        # 工具名映射到 amap-mcp-server 的原生工具名。
-        raw = await self._stdio_client.call_tool(
-            "maps_text_search",
-            {
-                "keywords": keywords,
-                "city": city,
-                "citylimit": str(citylimit).lower(),
-            },
+                # maps_text_search 常不返回 location，补一次 detail 查询拿完整坐标。
+                for poi in normalized:
+                    poi_id = str(poi.get("id", "")).strip()
+                    if not poi_id or not self._is_empty_location(poi.get("location")):
+                        continue
+                    detail_fetch_count += 1
+                    try:
+                        detail = await self.get_poi_detail(poi_id=poi_id)
+                    except Exception:
+                        continue
+                    if not isinstance(detail, dict):
+                        continue
+
+                    if detail.get("location") is not None:
+                        poi["location"] = self._parse_location(detail.get("location"))
+                    if not poi.get("address") and detail.get("address"):
+                        poi["address"] = str(detail.get("address", ""))
+                    if not poi.get("type") and detail.get("type"):
+                        poi["type"] = str(detail.get("type", ""))
+                    if not poi.get("tel") and detail.get("tel"):
+                        poi["tel"] = str(detail.get("tel", ""))
+
+        logger.info(
+            "🗺️ 高德POI搜索统计 | keywords=%s | city=%s | 结果数=%d | detail补全=%d",
+            keywords,
+            city,
+            len(normalized),
+            detail_fetch_count,
         )
-        parsed = self._coerce_json(raw)
-        items = self._extract_poi_items(parsed)
-        normalized = [self._normalize_poi_item(item) for item in items]
-
-        # maps_text_search 常不返回 location，补一次 detail 查询拿完整坐标。
-        for poi in normalized:
-            poi_id = str(poi.get("id", "")).strip()
-            if not poi_id or not self._is_empty_location(poi.get("location")):
-                continue
-            try:
-                detail = await self.get_poi_detail(poi_id=poi_id)
-            except Exception:
-                continue
-            if not isinstance(detail, dict):
-                continue
-
-            if detail.get("location") is not None:
-                poi["location"] = self._parse_location(detail.get("location"))
-            if not poi.get("address") and detail.get("address"):
-                poi["address"] = str(detail.get("address", ""))
-            if not poi.get("type") and detail.get("type"):
-                poi["type"] = str(detail.get("type", ""))
-            if not poi.get("tel") and detail.get("tel"):
-                poi["tel"] = str(detail.get("tel", ""))
-
         return normalized
 
     async def get_weather(self, *, city: str) -> List[Dict[str, Any]]:
-        if self.mock_mode:
-            today = date.today().isoformat()
-            return [
-                {
-                    "date": today,
-                    "day_weather": f"{city}晴",
-                    "night_weather": f"{city}多云",
-                    "day_temp": 26,
-                    "night_temp": 18,
-                    "wind_direction": "东北",
-                    "wind_power": "3级",
-                }
-            ]
+        weather_items: List[Dict[str, Any]]
+        with log_duration(
+            logger,
+            "高德天气查询",
+            start_message=f"🌤️ 高德天气查询开始 | city={city}",
+            success_message=f"🌤️ 高德天气查询完成 | city={city}",
+        ):
+            if self.mock_mode:
+                today = date.today().isoformat()
+                weather_items = [
+                    {
+                        "date": today,
+                        "day_weather": f"{city}晴",
+                        "night_weather": f"{city}多云",
+                        "day_temp": 26,
+                        "night_temp": 18,
+                        "wind_direction": "东北",
+                        "wind_power": "3级",
+                    }
+                ]
+            else:
+                await self._log_native_tools_once()
+                raw = await self._stdio_client.call_tool("maps_weather", {"city": city})
+                parsed = self._coerce_json(raw)
+                weather_items = self._normalize_weather_items(parsed)
 
-        raw = await self._stdio_client.call_tool("maps_weather", {"city": city})
-        parsed = self._coerce_json(raw)
-        return self._normalize_weather_items(parsed)
+        logger.info("🌤️ 高德天气查询统计 | city=%s | 天数=%d", city, len(weather_items))
+        return weather_items
 
     async def plan_route(
         self,
@@ -163,6 +194,7 @@ class AmapMCPClient:
                 "description": f"从“{origin_address}”到“{destination_address}”的{route_type}路线（示例）",
             }
 
+        await self._log_native_tools_once()
         tool_map = {
             "walking": "maps_direction_walking_by_address",
             "driving": "maps_direction_driving_by_address",
@@ -193,6 +225,7 @@ class AmapMCPClient:
                 "location": "116.397428,39.90923",
             }
 
+        await self._log_native_tools_once()
         raw = await self._stdio_client.call_tool("maps_search_detail", {"id": poi_id})
         parsed = self._coerce_json(raw)
 
@@ -211,6 +244,25 @@ class AmapMCPClient:
             return parsed
 
         return {"id": poi_id, "raw": parsed}
+
+    async def _log_native_tools_once(self) -> List[str]:
+        if self.mock_mode:
+            return ["search_poi", "get_weather", "plan_route", "get_poi_detail"]
+        if self._native_tools_logged:
+            return list(self._native_tool_names)
+        if not hasattr(self._stdio_client, "list_tools"):
+            self._native_tools_logged = True
+            self._native_tool_names = []
+            return []
+
+        tools = await self._stdio_client.list_tools()
+        names = [item.get("name", "") for item in tools if item.get("name")]
+        for name in names:
+            logger.info("✅ 工具 '%s' 已注册。", name)
+        logger.info("✅ MCP工具 'amap' 已展开为 %d 个独立工具", len(names))
+        self._native_tools_logged = True
+        self._native_tool_names = list(names)
+        return names
 
     @staticmethod
     def _coerce_json(raw: Any) -> Any:

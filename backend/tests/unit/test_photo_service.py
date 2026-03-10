@@ -1,9 +1,12 @@
 """PhotoService 测试。"""
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.core import ExternalServiceError
-from app.services.photo_service import PhotoService
+import app.services.photo_service as photo_service_module
+from app.services.photo_service import PhotoService, get_photo_service
 
 
 class _FakeClientOK:
@@ -47,7 +50,22 @@ class TestPhotoService(unittest.TestCase):
         url = service.get_attraction_photo("")
         self.assertEqual(url, "https://source.unsplash.com/featured/?travel")
 
+    def test_get_photo_service_builds_singleton_lazily(self) -> None:
+        original = photo_service_module._photo_service
+        try:
+            photo_service_module._photo_service = None
+            with patch(
+                "app.services.photo_service.get_settings",
+                return_value=SimpleNamespace(unsplash_access_key=""),
+            ):
+                first = get_photo_service()
+                second = get_photo_service()
+        finally:
+            photo_service_module._photo_service = original
+
+        self.assertIs(first, second)
+        self.assertIsNone(first.client)
+
 
 if __name__ == "__main__":
     unittest.main()
-
