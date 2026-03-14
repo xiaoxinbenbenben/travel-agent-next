@@ -16,10 +16,12 @@ class MiniAgent:
     def __init__(
         self,
         *,
+        name: str = "MiniAgent",
         llm_client: LLMClientProtocol,
         tool_registry: ToolRegistry,
         max_steps: int = 6,
     ) -> None:
+        self.name = name
         self.llm_client = llm_client
         self.tool_registry = tool_registry
         self.max_steps = max_steps
@@ -42,6 +44,7 @@ class MiniAgent:
                 result = await self.tool_registry.dispatch(call.tool_name, call.arguments)
                 traces.append(
                     ToolTrace(
+                        agent_name=self.name,
                         tool_name=call.tool_name,
                         arguments=call.arguments,
                         result=result,

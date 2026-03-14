@@ -2,35 +2,39 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Protocol
 
 from app.agent.contracts import AgentRunResult, ToolTrace
-from app.agent.prompts import (
-    ATTRACTION_SYSTEM_PROMPT,
-    ATTRACTION_USER_PROMPT_TEMPLATE,
-    HOTEL_SYSTEM_PROMPT,
-    HOTEL_USER_PROMPT_TEMPLATE,
-    MEAL_SYSTEM_PROMPT,
-    MEAL_USER_PROMPT_TEMPLATE,
-    PLANNER_SYSTEM_PROMPT,
-    PLANNER_USER_PROMPT_TEMPLATE,
-    WEATHER_SYSTEM_PROMPT,
-    WEATHER_USER_PROMPT_TEMPLATE,
-)
-from app.agent.runtime import MiniAgent
 from app.core import log_duration
 from app.schemas.trip import TripRequest
 
 logger = logging.getLogger(__name__)
 
 
+class _FallbackCapableAgent(Protocol):
+    name: str
+    tool_registry: Any
+
+
 class TripWorkflow:
     """Trip 编排入口：前置采集 + 最终 planner。"""
 
-    def __init__(self, agent: MiniAgent) -> None:
-        self.agent = agent
+    def __init__(
+        self,
+        attraction_agent: Any,
+        weather_agent: Any,
+        hotel_agent: Any,
+        meal_agent: Any,
+        planner_agent: Any,
+    ) -> None:
+        self.attraction_agent = attraction_agent
+        self.weather_agent = weather_agent
+        self.hotel_agent = hotel_agent
+        self.meal_agent = meal_agent
+        self.planner_agent = planner_agent
 
     async def run(self, request: TripRequest) -> AgentRunResult:
         all_traces: List[ToolTrace] = []
@@ -47,16 +51,11 @@ class TripWorkflow:
                     start_message=f"📍 步骤1: 搜索景点 [{preference}]...",
                 ):
                     attraction_stage = await self._run_stage_with_fallback(
-                        messages=[
-                            {"role": "system", "content": ATTRACTION_SYSTEM_PROMPT},
-                            {
-                                "role": "user",
-                                "content": ATTRACTION_USER_PROMPT_TEMPLATE.format(
-                                    city=request.city,
-                                    preferences=preference,
-                                ),
-                            },
-                        ],
+                        agent=self.attraction_agent,
+                        runner=lambda preference=preference: self.attraction_agent.search(
+                            request.city,
+                            preference,
+                        ),
                         required_tool="search_poi",
                         fallback_arguments={
                             "keywords": preference,
@@ -72,13 +71,8 @@ class TripWorkflow:
                 start_message="🌤️ 步骤2: 查询天气...",
             ):
                 weather_stage = await self._run_stage_with_fallback(
-                    messages=[
-                        {"role": "system", "content": WEATHER_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": WEATHER_USER_PROMPT_TEMPLATE.format(city=request.city),
-                        },
-                    ],
+                    agent=self.weather_agent,
+                    runner=lambda: self.weather_agent.query(request.city),
                     required_tool="get_weather",
                     fallback_arguments={"city": request.city},
                 )
@@ -91,16 +85,8 @@ class TripWorkflow:
                 start_message="🏨 步骤3: 搜索酒店...",
             ):
                 hotel_stage = await self._run_stage_with_fallback(
-                    messages=[
-                        {"role": "system", "content": HOTEL_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": HOTEL_USER_PROMPT_TEMPLATE.format(
-                                city=request.city,
-                                accommodation=hotel_keyword,
-                            ),
-                        },
-                    ],
+                    agent=self.hotel_agent,
+                    runner=lambda: self.hotel_agent.search(request.city, hotel_keyword),
                     required_tool="search_poi",
                     fallback_arguments={
                         "keywords": hotel_keyword,
@@ -116,13 +102,8 @@ class TripWorkflow:
                 start_message="🍽️ 步骤4: 搜索餐饮...",
             ):
                 meal_stage = await self._run_stage_with_fallback(
-                    messages=[
-                        {"role": "system", "content": MEAL_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": MEAL_USER_PROMPT_TEMPLATE.format(city=request.city),
-                        },
-                    ],
+                    agent=self.meal_agent,
+                    runner=lambda: self.meal_agent.search(request.city),
                     required_tool="search_poi",
                     fallback_arguments={
                         "keywords": "美食 餐厅",
@@ -137,16 +118,8 @@ class TripWorkflow:
                 "步骤5: 生成行程计划",
                 start_message="📋 步骤5: 生成行程计划...",
             ):
-                planner_stage = await self.agent.run(
-                    [
-                        {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": PLANNER_USER_PROMPT_TEMPLATE.format(
-                                planner_context=self._planner_context(request, all_traces)
-                            ),
-                        },
-                    ]
+                planner_stage = await self.planner_agent.plan(
+                    self._planner_context(request, all_traces)
                 )
             all_traces.extend(planner_stage.traces)
             return AgentRunResult(content=planner_stage.content, traces=all_traces)
@@ -154,18 +127,20 @@ class TripWorkflow:
     async def _run_stage_with_fallback(
         self,
         *,
-        messages: List[Dict[str, str]],
+        agent: _FallbackCapableAgent,
+        runner: Callable[[], Awaitable[AgentRunResult]],
         required_tool: str,
         fallback_arguments: Dict[str, Any],
     ) -> AgentRunResult:
-        result = await self.agent.run(messages)
+        result = await runner()
         traces = list(result.traces)
         if any(item.tool_name == required_tool for item in traces):
             return AgentRunResult(content=result.content, traces=traces)
 
-        fallback_result = await self.agent.tool_registry.dispatch(required_tool, fallback_arguments)
+        fallback_result = await agent.tool_registry.dispatch(required_tool, fallback_arguments)
         traces.append(
             ToolTrace(
+                agent_name=agent.name,
                 tool_name=required_tool,
                 arguments=fallback_arguments,
                 result=fallback_result,

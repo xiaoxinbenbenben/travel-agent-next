@@ -30,11 +30,17 @@ class TestAgentRuntime(unittest.TestCase):
         registry = ToolRegistry()
         registry.register("echo", lambda payload: {"echo": payload["text"]})
         fake_llm = FakeLLM()
-        agent = MiniAgent(llm_client=fake_llm, tool_registry=registry, max_steps=3)
+        agent = MiniAgent(
+            name="EchoAgent",
+            llm_client=fake_llm,
+            tool_registry=registry,
+            max_steps=3,
+        )
 
         result = asyncio.run(agent.run([{"role": "user", "content": "请给出建议"}]))
         self.assertEqual(result.content, "最终建议：行程可执行。")
         self.assertEqual(len(result.traces), 1)
+        self.assertEqual(result.traces[0].agent_name, "EchoAgent")
         self.assertEqual(result.traces[0].tool_name, "echo")
         self.assertEqual(result.traces[0].result["echo"], "hello")
 

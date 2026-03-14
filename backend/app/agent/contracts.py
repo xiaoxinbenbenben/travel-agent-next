@@ -26,6 +26,7 @@ class AgentTurnResult:
 class ToolTrace:
     """工具执行轨迹。"""
 
+    agent_name: str
     tool_name: str
     arguments: Dict[str, Any]
     result: Any
@@ -45,4 +46,3 @@ class LLMClientProtocol(Protocol):
     async def chat(self, messages: Sequence[Dict[str, str]]) -> Any:
         """返回模型输出，允许 str / dict / list。"""
         ...
-

@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
-from app.agent import MiniAgent, ToolRegistry
+from app.agent import ToolRegistry, build_trip_specialists
 from app.agent.contracts import ToolTrace
 from app.agent.workflows import TripWorkflow
 from app.core import AppError, ExternalServiceError, ValidationError, log_duration
@@ -818,7 +818,14 @@ async def _build_plan_without_llm(request: TripRequest, registry: ToolRegistry) 
             result = await registry.dispatch(tool_name, args)
         except (AppError, ExternalServiceError):
             return None
-        traces.append(ToolTrace(tool_name=tool_name, arguments=args, result=result))
+        traces.append(
+            ToolTrace(
+                agent_name="RuleFallbackWorkflow",
+                tool_name=tool_name,
+                arguments=args,
+                result=result,
+            )
+        )
         return result
 
     for preference in _normalized_preferences(request.preferences):
@@ -869,8 +876,18 @@ async def build_trip_plan(request: TripRequest) -> TripPlan:
         logger.warning("LLM 未配置，降级到规则编排")
         return await _build_plan_without_llm(request, registry)
 
-    agent = MiniAgent(llm_client=llm_client, tool_registry=registry, max_steps=6)
-    workflow = TripWorkflow(agent)
+    specialists = build_trip_specialists(
+        llm_client=llm_client,
+        base_tool_registry=registry,
+        max_steps=6,
+    )
+    workflow = TripWorkflow(
+        attraction_agent=specialists.attraction_agent,
+        weather_agent=specialists.weather_agent,
+        hotel_agent=specialists.hotel_agent,
+        meal_agent=specialists.meal_agent,
+        planner_agent=specialists.planner_agent,
+    )
 
     try:
         with log_duration(

@@ -19,115 +19,165 @@ class _FakeRegistry:
             keyword = arguments.get("keywords", "")
             if keyword == "自然景观":
                 return [
-                    {"name": "颐和园", "address": "北京", "location": "116.27,39.99"},
-                    {"name": "奥林匹克森林公园", "address": "北京", "location": "116.40,40.01"},
+                    {"id": "nature-1", "name": "颐和园", "address": "北京", "location": "116.27,39.99"},
+                    {"id": "nature-2", "name": "奥林匹克森林公园", "address": "北京", "location": "116.40,40.01"},
                 ]
             if keyword == "历史文化":
                 return [
-                    {"name": "故宫博物院", "address": "北京", "location": "116.39,39.90"},
-                    {"name": "天坛公园", "address": "北京", "location": "116.41,39.88"},
+                    {"id": "history-1", "name": "故宫博物院", "address": "北京", "location": "116.39,39.90"},
+                    {"id": "history-2", "name": "天坛公园", "address": "北京", "location": "116.41,39.88"},
                 ]
-            return [{"name": "北京酒店", "address": "北京", "location": "116.40,39.91"}]
+            if "酒店" in keyword or "住宿" in keyword:
+                return [{"id": "hotel-1", "name": "北京酒店", "address": "北京", "location": "116.40,39.91"}]
+            return [{"id": "meal-1", "name": "北京烤鸭店", "address": "北京", "location": "116.41,39.90"}]
         if tool_name == "get_weather":
             return [{"date": "2026-04-01", "day_weather": "晴", "night_weather": "多云"}]
-        if tool_name == "get_photo":
-            name = str(arguments.get("name", ""))
-            return {"name": name, "photo_url": f"https://img.example.com/{name}"}
         return {}
 
 
-class _AlwaysEmptyAgent:
-    """始终不返回工具调用，用于验证 workflow 的兜底分发。"""
+class _FallbackAttractionAgent:
+    """始终不返回工具调用，依赖 workflow 兜底。"""
+
+    name = "AttractionSearchAgent"
 
     def __init__(self, registry: _FakeRegistry) -> None:
         self.tool_registry = registry
-        self.messages_history: List[List[Dict[str, str]]] = []
+        self.requests: List[Dict[str, str]] = []
 
-    async def run(self, messages):  # type: ignore[no-untyped-def]
-        self.messages_history.append(list(messages))
+    async def search(self, city: str, preference: str) -> AgentRunResult:
+        self.requests.append({"city": city, "preference": preference})
         return AgentRunResult(content="", traces=[])
 
 
-class _PlannerAwareAgent(_AlwaysEmptyAgent):
-    """前置阶段无工具调用，最终 planner 阶段返回结构化 JSON。"""
+class _FallbackWeatherAgent:
+    name = "WeatherQueryAgent"
 
-    async def run(self, messages):  # type: ignore[no-untyped-def]
-        self.messages_history.append(list(messages))
-        if len(self.messages_history) < 6:
-            return AgentRunResult(content="", traces=[])
+    def __init__(self, registry: _FakeRegistry) -> None:
+        self.tool_registry = registry
+        self.cities: List[str] = []
+
+    async def query(self, city: str) -> AgentRunResult:
+        self.cities.append(city)
+        return AgentRunResult(content="", traces=[])
+
+
+class _FallbackHotelAgent:
+    name = "HotelAgent"
+
+    def __init__(self, registry: _FakeRegistry) -> None:
+        self.tool_registry = registry
+        self.requests: List[Dict[str, str]] = []
+
+    async def search(self, city: str, accommodation: str) -> AgentRunResult:
+        self.requests.append({"city": city, "accommodation": accommodation})
+        return AgentRunResult(content="", traces=[])
+
+
+class _FallbackMealAgent:
+    name = "MealAgent"
+
+    def __init__(self, registry: _FakeRegistry) -> None:
+        self.tool_registry = registry
+        self.cities: List[str] = []
+
+    async def search(self, city: str) -> AgentRunResult:
+        self.cities.append(city)
+        return AgentRunResult(content="", traces=[])
+
+
+class _PlannerAwareAgent:
+    name = "PlannerAgent"
+
+    def __init__(self, registry: _FakeRegistry) -> None:
+        self.tool_registry = registry
+        self.planner_contexts: List[str] = []
+
+    async def plan(self, planner_context: str) -> AgentRunResult:
+        self.planner_contexts.append(planner_context)
         return AgentRunResult(
             content=(
                 '{"days":[{"day_index":0,"theme":"自然景观","description":"第1天优先安排长城。",'
-                '"attraction_poi_ids":["nature-1"],"meal_names":{"breakfast":"北京早餐铺"},'
+                '"attraction_poi_ids":["nature-1"],"meal_names":{"breakfast":"北京烤鸭店"},'
                 '"hotel_name":"北京酒店"}],"overall_suggestions":"优先满足故宫和长城偏好。"}'
             ),
             traces=[],
         )
 
 
-class _ScriptedAgent:
-    """按阶段返回预设 traces。"""
+class _ScriptedAttractionAgent(_FallbackAttractionAgent):
+    async def search(self, city: str, preference: str) -> AgentRunResult:
+        self.requests.append({"city": city, "preference": preference})
+        return AgentRunResult(
+            content="",
+            traces=[
+                ToolTrace(
+                    agent_name=self.name,
+                    tool_name="search_poi",
+                    arguments={"keywords": preference, "city": city},
+                    result=[{"id": "history-1", "name": "故宫博物院", "address": city, "location": "116.39,39.90"}],
+                )
+            ],
+        )
 
-    def __init__(self, registry: _FakeRegistry) -> None:
-        self.tool_registry = registry
-        self.count = 0
 
-    async def run(self, messages):  # type: ignore[no-untyped-def]
-        _ = messages
-        self.count += 1
-        if self.count == 1:
-            return AgentRunResult(
-                content="",
-                traces=[
-                    ToolTrace(
-                        tool_name="search_poi",
-                        arguments={"keywords": "历史文化", "city": "北京"},
-                        result=[{"name": "故宫博物院", "address": "北京", "location": "116.39,39.90"}],
-                    )
-                ],
-            )
-        if self.count == 2:
-            return AgentRunResult(
-                content="",
-                traces=[
-                    ToolTrace(
-                        tool_name="get_weather",
-                        arguments={"city": "北京"},
-                        result=[{"date": "2026-04-01", "day_weather": "晴", "night_weather": "多云"}],
-                    )
-                ],
-            )
-        if self.count == 3:
-            return AgentRunResult(
-                content="",
-                traces=[
-                    ToolTrace(
-                        tool_name="search_poi",
-                        arguments={"keywords": "酒店", "city": "北京"},
-                        result=[{"name": "北京酒店", "address": "北京", "location": "116.40,39.91"}],
-                    )
-                ],
-            )
-        if self.count == 4:
-            return AgentRunResult(
-                content="",
-                traces=[
-                    ToolTrace(
-                        tool_name="search_poi",
-                        arguments={"keywords": "美食 餐厅", "city": "北京"},
-                        result=[{"name": "北京烤鸭店", "address": "北京", "location": "116.41,39.90"}],
-                    )
-                ],
-            )
-        if self.count == 5:
-            return AgentRunResult(
-                content=(
-                    '{"days":[{"day_index":0,"theme":"历史文化","description":"第1天先去故宫。",'
-                    '"attraction_poi_ids":["history-1"]}],"overall_suggestions":"优先历史文化。"}'
-                ),
-                traces=[],
-            )
-        return AgentRunResult(content="", traces=[])
+class _ScriptedWeatherAgent(_FallbackWeatherAgent):
+    async def query(self, city: str) -> AgentRunResult:
+        self.cities.append(city)
+        return AgentRunResult(
+            content="",
+            traces=[
+                ToolTrace(
+                    agent_name=self.name,
+                    tool_name="get_weather",
+                    arguments={"city": city},
+                    result=[{"date": "2026-04-01", "day_weather": "晴", "night_weather": "多云"}],
+                )
+            ],
+        )
+
+
+class _ScriptedHotelAgent(_FallbackHotelAgent):
+    async def search(self, city: str, accommodation: str) -> AgentRunResult:
+        self.requests.append({"city": city, "accommodation": accommodation})
+        return AgentRunResult(
+            content="",
+            traces=[
+                ToolTrace(
+                    agent_name=self.name,
+                    tool_name="search_poi",
+                    arguments={"keywords": accommodation, "city": city},
+                    result=[{"id": "hotel-1", "name": "北京酒店", "address": city, "location": "116.40,39.91"}],
+                )
+            ],
+        )
+
+
+class _ScriptedMealAgent(_FallbackMealAgent):
+    async def search(self, city: str) -> AgentRunResult:
+        self.cities.append(city)
+        return AgentRunResult(
+            content="",
+            traces=[
+                ToolTrace(
+                    agent_name=self.name,
+                    tool_name="search_poi",
+                    arguments={"keywords": "美食 餐厅", "city": city},
+                    result=[{"id": "meal-1", "name": "北京烤鸭店", "address": city, "location": "116.41,39.90"}],
+                )
+            ],
+        )
+
+
+class _ScriptedPlannerAgent(_PlannerAwareAgent):
+    async def plan(self, planner_context: str) -> AgentRunResult:
+        self.planner_contexts.append(planner_context)
+        return AgentRunResult(
+            content=(
+                '{"days":[{"day_index":0,"theme":"历史文化","description":"第1天先去故宫。",'
+                '"attraction_poi_ids":["history-1"]}],"overall_suggestions":"优先历史文化。"}'
+            ),
+            traces=[],
+        )
 
 
 class TestTripWorkflow(unittest.TestCase):
@@ -145,10 +195,20 @@ class TestTripWorkflow(unittest.TestCase):
             free_text_input="希望多安排博物馆",
         )
 
-    def test_workflow_dispatches_each_preference_and_runs_final_planner(self) -> None:
+    def test_workflow_dispatches_specialists_and_runs_final_planner(self) -> None:
         registry = _FakeRegistry()
-        agent = _PlannerAwareAgent(registry)
-        workflow = TripWorkflow(agent=agent)  # type: ignore[arg-type]
+        attraction_agent = _FallbackAttractionAgent(registry)
+        weather_agent = _FallbackWeatherAgent(registry)
+        hotel_agent = _FallbackHotelAgent(registry)
+        meal_agent = _FallbackMealAgent(registry)
+        planner_agent = _PlannerAwareAgent(registry)
+        workflow = TripWorkflow(
+            attraction_agent=attraction_agent,  # type: ignore[arg-type]
+            weather_agent=weather_agent,  # type: ignore[arg-type]
+            hotel_agent=hotel_agent,  # type: ignore[arg-type]
+            meal_agent=meal_agent,  # type: ignore[arg-type]
+            planner_agent=planner_agent,  # type: ignore[arg-type]
+        )
 
         result = asyncio.run(workflow.run(self.request))
         self.assertIn("优先满足故宫和长城偏好", result.content)
@@ -162,37 +222,56 @@ class TestTripWorkflow(unittest.TestCase):
             [call["arguments"]["keywords"] for call in search_calls],
             ["自然景观", "历史文化"],
         )
-        photo_calls = [
-            call["arguments"]["name"]
-            for call in registry.dispatch_calls
-            if call["tool_name"] == "get_photo"
-        ]
-        self.assertEqual(photo_calls, [])
-        self.assertEqual(len(agent.messages_history), 6)
-        planner_messages = agent.messages_history[-1]
-        planner_payload = "\n".join(message["content"] for message in planner_messages)
+        self.assertEqual(
+            [item["preference"] for item in attraction_agent.requests],
+            ["自然景观", "历史文化"],
+        )
+        self.assertEqual(weather_agent.cities, ["北京"])
+        self.assertEqual(hotel_agent.requests, [{"city": "北京", "accommodation": "经济型酒店"}])
+        self.assertEqual(meal_agent.cities, ["北京"])
+        self.assertEqual(len(planner_agent.planner_contexts), 1)
+        planner_payload = planner_agent.planner_contexts[-1]
         self.assertIn("希望多安排博物馆", planner_payload)
         self.assertIn("故宫博物院", planner_payload)
         self.assertIn("北京酒店", planner_payload)
+        self.assertIn("北京烤鸭店", planner_payload)
+        self.assertEqual(
+            {trace.agent_name for trace in result.traces},
+            {"AttractionSearchAgent", "WeatherQueryAgent", "HotelAgent", "MealAgent"},
+        )
 
-    def test_workflow_prefers_agent_tool_traces(self) -> None:
+    def test_workflow_prefers_specialist_tool_traces(self) -> None:
         request = self.request.model_copy(update={"preferences": ["历史文化"]})
         registry = _FakeRegistry()
-        agent = _ScriptedAgent(registry)
-        workflow = TripWorkflow(agent=agent)  # type: ignore[arg-type]
+        workflow = TripWorkflow(
+            attraction_agent=_ScriptedAttractionAgent(registry),  # type: ignore[arg-type]
+            weather_agent=_ScriptedWeatherAgent(registry),  # type: ignore[arg-type]
+            hotel_agent=_ScriptedHotelAgent(registry),  # type: ignore[arg-type]
+            meal_agent=_ScriptedMealAgent(registry),  # type: ignore[arg-type]
+            planner_agent=_ScriptedPlannerAgent(registry),  # type: ignore[arg-type]
+        )
 
         result = asyncio.run(workflow.run(request))
-        tool_names = [item.tool_name for item in result.traces]
-        self.assertIn("search_poi", tool_names)
-        self.assertIn("get_weather", tool_names)
-        self.assertNotIn("get_photo", tool_names)
         self.assertIn("优先历史文化", result.content)
         self.assertEqual(registry.dispatch_calls, [])
+        self.assertEqual(
+            [item.agent_name for item in result.traces],
+            ["AttractionSearchAgent", "WeatherQueryAgent", "HotelAgent", "MealAgent"],
+        )
+        self.assertEqual(
+            [item.tool_name for item in result.traces],
+            ["search_poi", "get_weather", "search_poi", "search_poi"],
+        )
 
     def test_workflow_logs_stage_durations(self) -> None:
         registry = _FakeRegistry()
-        agent = _PlannerAwareAgent(registry)
-        workflow = TripWorkflow(agent=agent)  # type: ignore[arg-type]
+        workflow = TripWorkflow(
+            attraction_agent=_FallbackAttractionAgent(registry),  # type: ignore[arg-type]
+            weather_agent=_FallbackWeatherAgent(registry),  # type: ignore[arg-type]
+            hotel_agent=_FallbackHotelAgent(registry),  # type: ignore[arg-type]
+            meal_agent=_FallbackMealAgent(registry),  # type: ignore[arg-type]
+            planner_agent=_PlannerAwareAgent(registry),  # type: ignore[arg-type]
+        )
 
         with self.assertLogs("app.agent.workflows.trip_workflow", level="INFO") as captured:
             asyncio.run(workflow.run(self.request))
