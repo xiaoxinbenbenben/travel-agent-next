@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 import json
 import logging
@@ -44,74 +45,11 @@ class TripWorkflow:
             start_message="🚀 开始 TripWorkflow 编排...",
             success_message="✅ TripWorkflow 完成",
         ):
-            for preference in self._attraction_preferences(request):
-                with log_duration(
-                    logger,
-                    f"步骤1: 搜索景点[{preference}]",
-                    start_message=f"📍 步骤1: 搜索景点 [{preference}]...",
-                ):
-                    attraction_stage = await self._run_stage_with_fallback(
-                        agent=self.attraction_agent,
-                        runner=lambda preference=preference: self.attraction_agent.search(
-                            request.city,
-                            preference,
-                        ),
-                        required_tool="search_poi",
-                        fallback_arguments={
-                            "keywords": preference,
-                            "city": request.city,
-                            "citylimit": True,
-                        },
-                    )
-                all_traces.extend(attraction_stage.traces)
-
-            with log_duration(
-                logger,
-                "步骤2: 查询天气",
-                start_message="🌤️ 步骤2: 查询天气...",
-            ):
-                weather_stage = await self._run_stage_with_fallback(
-                    agent=self.weather_agent,
-                    runner=lambda: self.weather_agent.query(request.city),
-                    required_tool="get_weather",
-                    fallback_arguments={"city": request.city},
-                )
-            all_traces.extend(weather_stage.traces)
-
-            hotel_keyword = request.accommodation or "酒店"
-            with log_duration(
-                logger,
-                "步骤3: 搜索酒店",
-                start_message="🏨 步骤3: 搜索酒店...",
-            ):
-                hotel_stage = await self._run_stage_with_fallback(
-                    agent=self.hotel_agent,
-                    runner=lambda: self.hotel_agent.search(request.city, hotel_keyword),
-                    required_tool="search_poi",
-                    fallback_arguments={
-                        "keywords": hotel_keyword,
-                        "city": request.city,
-                        "citylimit": True,
-                    },
-                )
-            all_traces.extend(hotel_stage.traces)
-
-            with log_duration(
-                logger,
-                "步骤4: 搜索餐饮",
-                start_message="🍽️ 步骤4: 搜索餐饮...",
-            ):
-                meal_stage = await self._run_stage_with_fallback(
-                    agent=self.meal_agent,
-                    runner=lambda: self.meal_agent.search(request.city),
-                    required_tool="search_poi",
-                    fallback_arguments={
-                        "keywords": "美食 餐厅",
-                        "city": request.city,
-                        "citylimit": True,
-                    },
-                )
-            all_traces.extend(meal_stage.traces)
+            preplanner_stages = await asyncio.gather(
+                *self._build_preplanner_tasks(request)
+            )
+            for stage in preplanner_stages:
+                all_traces.extend(stage.traces)
 
             with log_duration(
                 logger,
@@ -123,6 +61,83 @@ class TripWorkflow:
                 )
             all_traces.extend(planner_stage.traces)
             return AgentRunResult(content=planner_stage.content, traces=all_traces)
+
+    def _build_preplanner_tasks(self, request: TripRequest) -> List[Awaitable[AgentRunResult]]:
+        tasks: List[Awaitable[AgentRunResult]] = []
+
+        for preference in self._attraction_preferences(request):
+            tasks.append(self._run_attraction_stage(request.city, preference))
+
+        tasks.append(self._run_weather_stage(request.city))
+
+        hotel_keyword = request.accommodation or "酒店"
+        tasks.append(self._run_hotel_stage(request.city, hotel_keyword))
+        tasks.append(self._run_meal_stage(request.city))
+        return tasks
+
+    async def _run_attraction_stage(self, city: str, preference: str) -> AgentRunResult:
+        with log_duration(
+            logger,
+            f"步骤1: 搜索景点[{preference}]",
+            start_message=f"📍 步骤1: 搜索景点 [{preference}]...",
+        ):
+            return await self._run_stage_with_fallback(
+                agent=self.attraction_agent,
+                runner=lambda: self.attraction_agent.search(city, preference),
+                required_tool="search_poi",
+                fallback_arguments={
+                    "keywords": preference,
+                    "city": city,
+                    "citylimit": True,
+                },
+            )
+
+    async def _run_weather_stage(self, city: str) -> AgentRunResult:
+        with log_duration(
+            logger,
+            "步骤2: 查询天气",
+            start_message="🌤️ 步骤2: 查询天气...",
+        ):
+            return await self._run_stage_with_fallback(
+                agent=self.weather_agent,
+                runner=lambda: self.weather_agent.query(city),
+                required_tool="get_weather",
+                fallback_arguments={"city": city},
+            )
+
+    async def _run_hotel_stage(self, city: str, hotel_keyword: str) -> AgentRunResult:
+        with log_duration(
+            logger,
+            "步骤3: 搜索酒店",
+            start_message="🏨 步骤3: 搜索酒店...",
+        ):
+            return await self._run_stage_with_fallback(
+                agent=self.hotel_agent,
+                runner=lambda: self.hotel_agent.search(city, hotel_keyword),
+                required_tool="search_poi",
+                fallback_arguments={
+                    "keywords": hotel_keyword,
+                    "city": city,
+                    "citylimit": True,
+                },
+            )
+
+    async def _run_meal_stage(self, city: str) -> AgentRunResult:
+        with log_duration(
+            logger,
+            "步骤4: 搜索餐饮",
+            start_message="🍽️ 步骤4: 搜索餐饮...",
+        ):
+            return await self._run_stage_with_fallback(
+                agent=self.meal_agent,
+                runner=lambda: self.meal_agent.search(city),
+                required_tool="search_poi",
+                fallback_arguments={
+                    "keywords": "美食 餐厅",
+                    "city": city,
+                    "citylimit": True,
+                },
+            )
 
     async def _run_stage_with_fallback(
         self,

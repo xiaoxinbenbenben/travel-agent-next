@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -37,6 +38,7 @@ class AmapMCPClient:
         self.mock_mode = mock_mode
         self._native_tools_logged = False
         self._native_tool_names: List[str] = []
+        self._native_tools_lock = asyncio.Lock()
 
         if stdio_client is not None:
             self._stdio_client = stdio_client
@@ -80,7 +82,14 @@ class AmapMCPClient:
 
         raise NotFoundError(f"不支持的工具: {tool_name}", details={"tool_name": tool_name})
 
-    async def search_poi(self, *, keywords: str, city: str, citylimit: bool = True) -> List[Dict[str, Any]]:
+    async def search_poi(
+        self,
+        *,
+        keywords: str,
+        city: str,
+        citylimit: bool = True,
+        enrich_details: bool = True,
+    ) -> List[Dict[str, Any]]:
         detail_fetch_count = 0
         normalized: List[Dict[str, Any]]
         with log_duration(
@@ -115,27 +124,28 @@ class AmapMCPClient:
                 items = self._extract_poi_items(parsed)
                 normalized = [self._normalize_poi_item(item) for item in items]
 
-                # maps_text_search 常不返回 location，补一次 detail 查询拿完整坐标。
-                for poi in normalized:
-                    poi_id = str(poi.get("id", "")).strip()
-                    if not poi_id or not self._is_empty_location(poi.get("location")):
-                        continue
-                    detail_fetch_count += 1
-                    try:
-                        detail = await self.get_poi_detail(poi_id=poi_id)
-                    except Exception:
-                        continue
-                    if not isinstance(detail, dict):
-                        continue
+                if enrich_details:
+                    # maps_text_search 常不返回 location，补一次 detail 查询拿完整坐标。
+                    for poi in normalized:
+                        poi_id = str(poi.get("id", "")).strip()
+                        if not poi_id or not self._is_empty_location(poi.get("location")):
+                            continue
+                        detail_fetch_count += 1
+                        try:
+                            detail = await self.get_poi_detail(poi_id=poi_id)
+                        except Exception:
+                            continue
+                        if not isinstance(detail, dict):
+                            continue
 
-                    if detail.get("location") is not None:
-                        poi["location"] = self._parse_location(detail.get("location"))
-                    if not poi.get("address") and detail.get("address"):
-                        poi["address"] = str(detail.get("address", ""))
-                    if not poi.get("type") and detail.get("type"):
-                        poi["type"] = str(detail.get("type", ""))
-                    if not poi.get("tel") and detail.get("tel"):
-                        poi["tel"] = str(detail.get("tel", ""))
+                        if detail.get("location") is not None:
+                            poi["location"] = self._parse_location(detail.get("location"))
+                        if not poi.get("address") and detail.get("address"):
+                            poi["address"] = str(detail.get("address", ""))
+                        if not poi.get("type") and detail.get("type"):
+                            poi["type"] = str(detail.get("type", ""))
+                        if not poi.get("tel") and detail.get("tel"):
+                            poi["tel"] = str(detail.get("tel", ""))
 
         logger.info(
             "🗺️ 高德POI搜索统计 | keywords=%s | city=%s | 结果数=%d | detail补全=%d",
@@ -250,19 +260,22 @@ class AmapMCPClient:
             return ["search_poi", "get_weather", "plan_route", "get_poi_detail"]
         if self._native_tools_logged:
             return list(self._native_tool_names)
-        if not hasattr(self._stdio_client, "list_tools"):
-            self._native_tools_logged = True
-            self._native_tool_names = []
-            return []
+        async with self._native_tools_lock:
+            if self._native_tools_logged:
+                return list(self._native_tool_names)
+            if not hasattr(self._stdio_client, "list_tools"):
+                self._native_tools_logged = True
+                self._native_tool_names = []
+                return []
 
-        tools = await self._stdio_client.list_tools()
-        names = [item.get("name", "") for item in tools if item.get("name")]
-        for name in names:
-            logger.info("✅ 工具 '%s' 已注册。", name)
-        logger.info("✅ MCP工具 'amap' 已展开为 %d 个独立工具", len(names))
-        self._native_tools_logged = True
-        self._native_tool_names = list(names)
-        return names
+            tools = await self._stdio_client.list_tools()
+            names = [item.get("name", "") for item in tools if item.get("name")]
+            logger.info("✅ MCP工具 'amap' 已展开为 %d 个独立工具", len(names))
+            if names:
+                logger.debug("amap 原生工具列表: %s", ", ".join(names))
+            self._native_tools_logged = True
+            self._native_tool_names = list(names)
+            return names
 
     @staticmethod
     def _coerce_json(raw: Any) -> Any:

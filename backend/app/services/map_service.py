@@ -15,8 +15,19 @@ class MapService:
     def __init__(self, client: AmapMCPClient) -> None:
         self.client = client
 
-    async def search_poi(self, keywords: str, city: str, citylimit: bool = True) -> List[POIInfo]:
-        payload = await self.client.search_poi(keywords=keywords, city=city, citylimit=citylimit)
+    async def search_poi(
+        self,
+        keywords: str,
+        city: str,
+        citylimit: bool = True,
+        enrich_details: bool = True,
+    ) -> List[POIInfo]:
+        payload = await self.client.search_poi(
+            keywords=keywords,
+            city=city,
+            citylimit=citylimit,
+            enrich_details=enrich_details,
+        )
         # 服务层统一做 schema 校验，路由层拿到的始终是稳定模型。
         return [POIInfo.model_validate(item) for item in payload]
 

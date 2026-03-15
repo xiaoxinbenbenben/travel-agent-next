@@ -77,6 +77,7 @@ class Settings:
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_timeout: int = 60
+    llm_max_concurrency: int = 2
     log_level: str = "INFO"
 
     @property
@@ -115,6 +116,7 @@ class Settings:
             llm_api_key=llm_api_key,
             llm_base_url=llm_base_url,
             llm_timeout=_to_int(os.getenv("LLM_TIMEOUT"), 60),
+            llm_max_concurrency=max(1, _to_int(os.getenv("LLM_MAX_CONCURRENCY"), 2)),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
         )
 

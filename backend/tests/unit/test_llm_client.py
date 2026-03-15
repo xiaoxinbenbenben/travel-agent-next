@@ -54,6 +54,21 @@ class _FakeOpenAIClient:
         self.chat = SimpleNamespace(completions=completions)
 
 
+class _DelayedCompletions:
+    def __init__(self) -> None:
+        self.current = 0
+        self.max_seen = 0
+
+    async def create(self, **_: Any) -> _FakeResponse:
+        self.current += 1
+        self.max_seen = max(self.max_seen, self.current)
+        try:
+            await asyncio.sleep(0.02)
+        finally:
+            self.current -= 1
+        return _FakeResponse(choices=[_FakeChoice(message=_FakeMessage(content="ok"))])
+
+
 class TestOpenAICompatibleLLMClient(unittest.TestCase):
     """LLM 客户端行为测试。"""
 
@@ -105,6 +120,28 @@ class TestOpenAICompatibleLLMClient(unittest.TestCase):
 
         with self.assertRaises(ExternalServiceError):
             asyncio.run(llm_client.chat([{"role": "user", "content": "hi"}]))
+
+    def test_chat_limits_concurrent_requests(self) -> None:
+        delayed = _DelayedCompletions()
+        fake_client = _FakeOpenAIClient(delayed)
+        llm_client = OpenAICompatibleLLMClient(
+            api_key="test-key",
+            base_url="https://example.com/v1",
+            model="test-model",
+            timeout_seconds=30,
+            client=fake_client,
+            max_concurrency=2,
+        )
+
+        async def _exercise() -> None:
+            await asyncio.gather(
+                llm_client.chat([{"role": "user", "content": "1"}]),
+                llm_client.chat([{"role": "user", "content": "2"}]),
+                llm_client.chat([{"role": "user", "content": "3"}]),
+            )
+
+        asyncio.run(_exercise())
+        self.assertLessEqual(delayed.max_seen, 2)
 
 
 if __name__ == "__main__":

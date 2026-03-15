@@ -119,9 +119,74 @@ class TestAmapMCPClient(unittest.TestCase):
         joined = "\n".join(captured.output)
         self.assertIn("高德POI搜索", joined)
         self.assertIn("detail补全=1", joined)
-        self.assertIn("工具 'amap_maps_text_search' 已注册", joined)
-        self.assertIn("工具 'amap_maps_search_detail' 已注册", joined)
         self.assertIn("MCP工具 'amap' 已展开为 3 个独立工具", joined)
+
+    def test_search_poi_skips_detail_enrichment_when_disabled(self) -> None:
+        class _FakeStdio:
+            def __init__(self) -> None:
+                self.calls: List[Dict[str, Any]] = []
+
+            async def list_tools(self) -> Any:
+                return [{"name": "maps_text_search"}, {"name": "maps_search_detail"}]
+
+            async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+                self.calls.append({"tool_name": tool_name, "arguments": arguments})
+                if tool_name == "maps_text_search":
+                    return {
+                        "pois": [
+                            {
+                                "id": "poi-3",
+                                "name": "外滩",
+                                "address": "上海市黄浦区",
+                                "type": "风景名胜",
+                            }
+                        ]
+                    }
+                if tool_name == "maps_search_detail":
+                    return {
+                        "id": "poi-3",
+                        "name": "外滩",
+                        "address": "上海市黄浦区中山东一路",
+                        "location": "121.490317,31.241701",
+                    }
+                return {}
+
+        fake = _FakeStdio()
+        client = AmapMCPClient(
+            api_key="test-key",
+            command="uvx amap-mcp-server",
+            mock_mode=False,
+            stdio_client=fake,  # type: ignore[arg-type]
+        )
+
+        result = asyncio.run(client.search_poi(keywords="外滩", city="上海", enrich_details=False))
+        self.assertEqual(result[0]["location"]["longitude"], 0.0)
+        self.assertEqual(result[0]["location"]["latitude"], 0.0)
+        self.assertEqual([call["tool_name"] for call in fake.calls], ["maps_text_search"])
+
+    def test_list_tools_only_queries_stdio_once_when_called_concurrently(self) -> None:
+        class _FakeStdio:
+            def __init__(self) -> None:
+                self.list_calls = 0
+
+            async def list_tools(self) -> Any:
+                self.list_calls += 1
+                await asyncio.sleep(0.02)
+                return [{"name": "maps_text_search"}, {"name": "maps_weather"}]
+
+        fake = _FakeStdio()
+        client = AmapMCPClient(
+            api_key="test-key",
+            command="uvx amap-mcp-server",
+            mock_mode=False,
+            stdio_client=fake,  # type: ignore[arg-type]
+        )
+
+        async def _exercise() -> None:
+            await asyncio.gather(client.list_tools(), client.list_tools(), client.list_tools())
+
+        asyncio.run(_exercise())
+        self.assertEqual(fake.list_calls, 1)
 
     def test_plan_route_with_nested_route_paths(self) -> None:
         class _FakeStdio:

@@ -35,6 +35,20 @@ class _FakeRegistry:
         return {}
 
 
+class _ConcurrencyTracker:
+    def __init__(self) -> None:
+        self.current = 0
+        self.max_seen = 0
+
+    async def hold(self, delay: float = 0.02) -> None:
+        self.current += 1
+        self.max_seen = max(self.max_seen, self.current)
+        try:
+            await asyncio.sleep(delay)
+        finally:
+            self.current -= 1
+
+
 class _FallbackAttractionAgent:
     """始终不返回工具调用，依赖 workflow 兜底。"""
 
@@ -82,6 +96,50 @@ class _FallbackMealAgent:
 
     async def search(self, city: str) -> AgentRunResult:
         self.cities.append(city)
+        return AgentRunResult(content="", traces=[])
+
+
+class _ConcurrentAttractionAgent(_FallbackAttractionAgent):
+    def __init__(self, registry: _FakeRegistry, tracker: _ConcurrencyTracker) -> None:
+        super().__init__(registry)
+        self.tracker = tracker
+
+    async def search(self, city: str, preference: str) -> AgentRunResult:
+        self.requests.append({"city": city, "preference": preference})
+        await self.tracker.hold()
+        return AgentRunResult(content="", traces=[])
+
+
+class _ConcurrentWeatherAgent(_FallbackWeatherAgent):
+    def __init__(self, registry: _FakeRegistry, tracker: _ConcurrencyTracker) -> None:
+        super().__init__(registry)
+        self.tracker = tracker
+
+    async def query(self, city: str) -> AgentRunResult:
+        self.cities.append(city)
+        await self.tracker.hold()
+        return AgentRunResult(content="", traces=[])
+
+
+class _ConcurrentHotelAgent(_FallbackHotelAgent):
+    def __init__(self, registry: _FakeRegistry, tracker: _ConcurrencyTracker) -> None:
+        super().__init__(registry)
+        self.tracker = tracker
+
+    async def search(self, city: str, accommodation: str) -> AgentRunResult:
+        self.requests.append({"city": city, "accommodation": accommodation})
+        await self.tracker.hold()
+        return AgentRunResult(content="", traces=[])
+
+
+class _ConcurrentMealAgent(_FallbackMealAgent):
+    def __init__(self, registry: _FakeRegistry, tracker: _ConcurrencyTracker) -> None:
+        super().__init__(registry)
+        self.tracker = tracker
+
+    async def search(self, city: str) -> AgentRunResult:
+        self.cities.append(city)
+        await self.tracker.hold()
         return AgentRunResult(content="", traces=[])
 
 
@@ -284,6 +342,20 @@ class TestTripWorkflow(unittest.TestCase):
         self.assertIn("步骤5: 生成行程计划", joined)
         self.assertIn("TripWorkflow 完成", joined)
         self.assertIn("耗时", joined)
+
+    def test_workflow_runs_preplanner_stages_concurrently(self) -> None:
+        registry = _FakeRegistry()
+        tracker = _ConcurrencyTracker()
+        workflow = TripWorkflow(
+            attraction_agent=_ConcurrentAttractionAgent(registry, tracker),  # type: ignore[arg-type]
+            weather_agent=_ConcurrentWeatherAgent(registry, tracker),  # type: ignore[arg-type]
+            hotel_agent=_ConcurrentHotelAgent(registry, tracker),  # type: ignore[arg-type]
+            meal_agent=_ConcurrentMealAgent(registry, tracker),  # type: ignore[arg-type]
+            planner_agent=_PlannerAwareAgent(registry),  # type: ignore[arg-type]
+        )
+
+        asyncio.run(workflow.run(self.request))
+        self.assertGreaterEqual(tracker.max_seen, 2)
 
 
 if __name__ == "__main__":

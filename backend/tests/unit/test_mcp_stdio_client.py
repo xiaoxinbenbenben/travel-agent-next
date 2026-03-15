@@ -38,6 +38,22 @@ class _FakeMCPClient:
         return _FakeToolResult(content=[_FakeTextContent(text='{"ok": true}')])
 
 
+class _DelayedClientFactory:
+    enter_count = 0
+
+    def __init__(self, transport: Any, timeout: int = 30) -> None:
+        _ = transport, timeout
+
+    async def __aenter__(self) -> _FakeMCPClient:
+        type(self).enter_count += 1
+        await asyncio.sleep(0.02)
+        return _FakeMCPClient()
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        _ = exc_type, exc, tb
+        return None
+
+
 class TestMCPStdioClient(unittest.TestCase):
     """通用 stdio 客户端行为测试。"""
 
@@ -65,6 +81,23 @@ class TestMCPStdioClient(unittest.TestCase):
         self.assertEqual(result, '{"ok": true}')
         self.assertNotIn("Processing request of type CallToolRequest", "\n".join(captured.output))
         debug_log.assert_not_called()
+
+    def test_connect_initializes_underlying_client_only_once_when_called_concurrently(self) -> None:
+        _DelayedClientFactory.enter_count = 0
+        client = MCPStdioClient(command="uvx", args=["amap-mcp-server"])
+
+        async def _exercise() -> None:
+            with (
+                patch("app.integrations.mcp.stdio_client.Client", _DelayedClientFactory),
+                patch("app.integrations.mcp.stdio_client.StdioTransport", lambda **kwargs: kwargs),
+            ):
+                await asyncio.gather(
+                    client.list_tools(),
+                    client.call_tool("maps_text_search", {"keywords": "故宫"}),
+                )
+
+        asyncio.run(_exercise())
+        self.assertEqual(_DelayedClientFactory.enter_count, 1)
 
 
 if __name__ == "__main__":

@@ -11,12 +11,32 @@ from app.services.trip_service import build_trip_plan
 
 class _FakeMapService:
     def __init__(self) -> None:
-        self.search_keywords: list[str] = []
+        self.search_calls: list[dict[str, object]] = []
+        self.detail_calls: list[str] = []
         self.route_calls = 0
 
-    async def search_poi(self, keywords: str, city: str, citylimit: bool = True):  # type: ignore[no-untyped-def]
+    async def search_poi(  # type: ignore[no-untyped-def]
+        self,
+        keywords: str,
+        city: str,
+        citylimit: bool = True,
+        enrich_details: bool = True,
+    ):
         _ = citylimit
-        self.search_keywords.append(keywords)
+        self.search_calls.append(
+            {
+                "keywords": keywords,
+                "city": city,
+                "citylimit": citylimit,
+                "enrich_details": enrich_details,
+            }
+        )
+
+        def _location(longitude: float, latitude: float) -> dict[str, float]:
+            if enrich_details:
+                return {"longitude": longitude, "latitude": latitude}
+            return {"longitude": 0.0, "latitude": 0.0}
+
         if "美食" in keywords or "餐厅" in keywords:
             return [
                 POIInfo(
@@ -24,7 +44,7 @@ class _FakeMapService:
                     name=f"{city}早餐铺",
                     type="餐饮服务",
                     address=f"{city}东城区",
-                    location={"longitude": 116.38, "latitude": 39.90},
+                    location=_location(116.38, 39.90),
                     tel=None,
                 ),
                 POIInfo(
@@ -32,7 +52,7 @@ class _FakeMapService:
                     name=f"{city}午餐馆",
                     type="餐饮服务",
                     address=f"{city}西城区",
-                    location={"longitude": 116.37, "latitude": 39.91},
+                    location=_location(116.37, 39.91),
                     tel=None,
                 ),
                 POIInfo(
@@ -40,7 +60,7 @@ class _FakeMapService:
                     name=f"{city}晚餐店",
                     type="餐饮服务",
                     address=f"{city}朝阳区",
-                    location={"longitude": 116.43, "latitude": 39.92},
+                    location=_location(116.43, 39.92),
                     tel=None,
                 ),
             ]
@@ -51,7 +71,7 @@ class _FakeMapService:
                     name=f"{city}中心酒店",
                     type="酒店",
                     address=f"{city}市中心",
-                    location={"longitude": 116.39, "latitude": 39.91},
+                    location=_location(116.39, 39.91),
                     tel=None,
                 )
             ]
@@ -62,7 +82,7 @@ class _FakeMapService:
                     name=f"{city}自然景观A",
                     type="景点",
                     address=f"{city}海淀区",
-                    location={"longitude": 116.30, "latitude": 39.99},
+                    location=_location(116.30, 39.99),
                     tel=None,
                 ),
                 POIInfo(
@@ -70,7 +90,7 @@ class _FakeMapService:
                     name=f"{city}自然景观B",
                     type="景点",
                     address=f"{city}朝阳区",
-                    location={"longitude": 116.44, "latitude": 40.02},
+                    location=_location(116.44, 40.02),
                     tel=None,
                 ),
                 POIInfo(
@@ -78,7 +98,7 @@ class _FakeMapService:
                     name=f"{city}自然景观C",
                     type="景点",
                     address=f"{city}丰台区",
-                    location={"longitude": 116.35, "latitude": 39.86},
+                    location=_location(116.35, 39.86),
                     tel=None,
                 ),
                 POIInfo(
@@ -86,7 +106,7 @@ class _FakeMapService:
                     name="天坛公园",
                     type="景点",
                     address=f"{city}东城区",
-                    location={"longitude": 116.41, "latitude": 39.88},
+                    location=_location(116.41, 39.88),
                     tel=None,
                 ),
                 POIInfo(
@@ -94,7 +114,7 @@ class _FakeMapService:
                     name=f"{city}自然景观D",
                     type="景点",
                     address=f"{city}延庆区",
-                    location={"longitude": 116.02, "latitude": 40.35},
+                    location=_location(116.02, 40.35),
                     tel=None,
                 ),
                 POIInfo(
@@ -102,7 +122,7 @@ class _FakeMapService:
                     name=f"{city}自然景观E",
                     type="景点",
                     address=f"{city}石景山区",
-                    location={"longitude": 116.18, "latitude": 39.91},
+                    location=_location(116.18, 39.91),
                     tel=None,
                 ),
             ]
@@ -113,7 +133,7 @@ class _FakeMapService:
                     name=f"{city}历史文化A",
                     type="景点",
                     address=f"{city}东城区",
-                    location={"longitude": 116.40, "latitude": 39.91},
+                    location=_location(116.40, 39.91),
                     tel=None,
                 ),
                 POIInfo(
@@ -121,7 +141,7 @@ class _FakeMapService:
                     name=f"{city}历史文化B",
                     type="景点",
                     address=f"{city}西城区",
-                    location={"longitude": 116.37, "latitude": 39.91},
+                    location=_location(116.37, 39.91),
                     tel=None,
                 ),
                 POIInfo(
@@ -129,7 +149,7 @@ class _FakeMapService:
                     name=f"{city}历史文化C",
                     type="景点",
                     address=f"{city}东城区",
-                    location={"longitude": 116.39, "latitude": 39.90},
+                    location=_location(116.39, 39.90),
                     tel=None,
                 ),
             ]
@@ -139,7 +159,7 @@ class _FakeMapService:
                 name=f"{city}故宫",
                 type="景点",
                 address=f"{city}东城区",
-                location={"longitude": 116.39, "latitude": 39.90},
+                location=_location(116.39, 39.90),
                 tel=None,
             ),
             POIInfo(
@@ -147,7 +167,7 @@ class _FakeMapService:
                 name=f"{city}天坛",
                 type="景点",
                 address=f"{city}崇文区",
-                location={"longitude": 116.41, "latitude": 39.88},
+                location=_location(116.41, 39.88),
                 tel=None,
             ),
         ]
@@ -187,6 +207,82 @@ class _FakeMapService:
         _ = kwargs
         self.route_calls += 1
         return RouteInfo(distance=1000.0, duration=600, route_type="walking", description="示例路线")
+
+    async def get_poi_detail(self, poi_id: str):  # type: ignore[no-untyped-def]
+        self.detail_calls.append(poi_id)
+        details = {
+            "nature-1": {
+                "id": "nature-1",
+                "name": "北京自然景观A",
+                "address": "北京海淀区",
+                "location": "116.30,39.99",
+                "type": "景点",
+            },
+            "nature-2": {
+                "id": "nature-2",
+                "name": "北京自然景观B",
+                "address": "北京朝阳区",
+                "location": "116.44,40.02",
+                "type": "景点",
+            },
+            "nature-3": {
+                "id": "nature-3",
+                "name": "北京自然景观C",
+                "address": "北京丰台区",
+                "location": "116.35,39.86",
+                "type": "景点",
+            },
+            "nature-4": {
+                "id": "nature-4",
+                "name": "北京自然景观D",
+                "address": "北京延庆区",
+                "location": "116.02,40.35",
+                "type": "景点",
+            },
+            "history-1": {
+                "id": "history-1",
+                "name": "北京历史文化A",
+                "address": "北京东城区",
+                "location": "116.40,39.91",
+                "type": "景点",
+            },
+            "history-2": {
+                "id": "history-2",
+                "name": "北京历史文化B",
+                "address": "北京西城区",
+                "location": "116.37,39.91",
+                "type": "景点",
+            },
+            "meal-1": {
+                "id": "meal-1",
+                "name": "北京早餐铺",
+                "address": "北京东城区",
+                "location": "116.38,39.90",
+                "type": "餐饮服务",
+            },
+            "meal-2": {
+                "id": "meal-2",
+                "name": "北京午餐馆",
+                "address": "北京西城区",
+                "location": "116.37,39.91",
+                "type": "餐饮服务",
+            },
+            "meal-3": {
+                "id": "meal-3",
+                "name": "北京晚餐店",
+                "address": "北京朝阳区",
+                "location": "116.43,39.92",
+                "type": "餐饮服务",
+            },
+            "hotel-1": {
+                "id": "hotel-1",
+                "name": "北京中心酒店",
+                "address": "北京市中心",
+                "location": "116.39,39.91",
+                "type": "酒店",
+            },
+        }
+        return details.get(poi_id, {"id": poi_id, "location": "0,0"})
 
 
 class _FakePhotoService:
@@ -232,9 +328,10 @@ class TestTripService(unittest.TestCase):
         self.assertEqual(plan.city, "北京")
         self.assertEqual(len(plan.days), 3)
         self.assertEqual(
-            fake_map_service.search_keywords[:4],
+            [call["keywords"] for call in fake_map_service.search_calls[:4]],
             ["自然景观", "历史文化", "经济型酒店", "美食 餐厅"],
         )
+        self.assertTrue(all(call["enrich_details"] is False for call in fake_map_service.search_calls))
         self.assertEqual(fake_map_service.route_calls, 0)
         self.assertIn("自然景观", plan.days[0].description)
         self.assertIn("历史文化", plan.days[1].description)
@@ -262,6 +359,7 @@ class TestTripService(unittest.TestCase):
         self.assertEqual(len(plan.weather_info), 3)
         self.assertIn("自然景观、历史文化", plan.overall_suggestions)
         self.assertNotIn("LLM 未配置", plan.overall_suggestions)
+        self.assertGreaterEqual(len(fake_map_service.detail_calls), 1)
 
         self.assertIsNotNone(plan.budget)
         budget = plan.budget
@@ -326,6 +424,25 @@ class TestTripService(unittest.TestCase):
         self.assertEqual(plan.days[0].description, "第1天先去长城。")
         self.assertEqual(plan.days[1].description, "第2天先去故宫。")
         self.assertEqual(plan.overall_suggestions, "已优先满足想去长城和故宫的补充要求。")
+        self.assertTrue(all(call["enrich_details"] is False for call in fake_map_service.search_calls))
+        self.assertEqual(
+            set(fake_map_service.detail_calls),
+            {
+                "nature-1",
+                "nature-2",
+                "nature-3",
+                "nature-4",
+                "history-1",
+                "history-2",
+                "hotel-1",
+                "meal-1",
+                "meal-2",
+                "meal-3",
+            },
+        )
+        self.assertEqual(plan.days[0].hotel.location.longitude, 116.39)  # type: ignore[union-attr]
+        self.assertEqual(plan.days[0].meals[0].location.longitude, 116.38)  # type: ignore[union-attr]
+        self.assertEqual(plan.days[0].attractions[0].location.longitude, 116.02)
         self.assertTrue(
             all(
                 attraction.image_url and attraction.image_url.startswith("https://img.example.com/")

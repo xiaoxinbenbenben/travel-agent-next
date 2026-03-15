@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -33,34 +34,39 @@ class MCPStdioClient:
         self._injected_client = client
         self._client: Any | None = None
         self._context: Any | None = None
+        self._connect_lock = asyncio.Lock()
 
     async def connect(self) -> None:
         # 连接复用：同一个 client 在进程内只建立一次 stdio 会话。
         if self._client is not None:
             return
 
-        command_text = " ".join([self.command, *self.args]).strip()
-        logger.info("📝 使用 Stdio 传输 (命令): %s", command_text)
-        logger.info("🔗 连接到 MCP 服务器...")
+        async with self._connect_lock:
+            if self._client is not None:
+                return
 
-        if self._injected_client is not None:
-            # 测试场景可注入 fake client，避免真实拉起子进程。
-            self._client = self._injected_client
-            if hasattr(self._client, "__aenter__"):
-                self._context = self._client
-                self._client = await self._context.__aenter__()
+            command_text = " ".join([self.command, *self.args]).strip()
+            logger.info("📝 使用 Stdio 传输 (命令): %s", command_text)
+            logger.info("🔗 连接到 MCP 服务器...")
+
+            if self._injected_client is not None:
+                # 测试场景可注入 fake client，避免真实拉起子进程。
+                self._client = self._injected_client
+                if hasattr(self._client, "__aenter__"):
+                    self._context = self._client
+                    self._client = await self._context.__aenter__()
+                logger.info("✅ 连接成功！")
+                return
+
+            # fastmcp 3.x 使用 StdioTransport 描述 stdio 子进程启动方式。
+            transport = StdioTransport(
+                command=self.command,
+                args=self.args,
+                env=self.env if self.env else None,
+            )
+            self._context = Client(transport, timeout=self.timeout_seconds)
+            self._client = await self._context.__aenter__()
             logger.info("✅ 连接成功！")
-            return
-
-        # fastmcp 3.x 使用 StdioTransport 描述 stdio 子进程启动方式。
-        transport = StdioTransport(
-            command=self.command,
-            args=self.args,
-            env=self.env if self.env else None,
-        )
-        self._context = Client(transport, timeout=self.timeout_seconds)
-        self._client = await self._context.__aenter__()
-        logger.info("✅ 连接成功！")
 
     async def close(self) -> None:
         if self._context is not None:

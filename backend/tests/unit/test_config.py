@@ -35,6 +35,7 @@ class TestSettings(unittest.TestCase):
             "LLM_API_KEY": "llm-key",
             "LLM_BASE_URL": "https://example.com/v1",
             "LLM_TIMEOUT": "99",
+            "LLM_MAX_CONCURRENCY": "2",
             "HOST": "127.0.0.1",
             "PORT": "9000",
             "CORS_ORIGINS": "http://localhost:5173,http://localhost:3000",
@@ -52,6 +53,7 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.llm_api_key, "llm-key")
         self.assertEqual(settings.llm_base_url, "https://example.com/v1")
         self.assertEqual(settings.llm_timeout, 99)
+        self.assertEqual(settings.llm_max_concurrency, 2)
         self.assertEqual(settings.host, "127.0.0.1")
         self.assertEqual(settings.port, 9000)
         self.assertEqual(settings.log_level, "DEBUG")

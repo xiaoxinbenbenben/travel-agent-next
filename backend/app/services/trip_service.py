@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from datetime import date, timedelta
 import json
@@ -772,6 +773,119 @@ def _apply_missing_photos(plan: TripPlan, photo_map: Dict[str, str]) -> None:
     )
 
 
+def _has_real_location(location: Location | None) -> bool:
+    if location is None:
+        return False
+    return not (location.longitude == 0.0 and location.latitude == 0.0)
+
+
+def _build_selected_poi_lookup(
+    traces: List[ToolTrace],
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    by_id: Dict[str, Dict[str, Any]] = {}
+    by_name: Dict[str, Dict[str, Any]] = {}
+
+    for trace in traces:
+        if trace.tool_name != "search_poi" or not isinstance(trace.result, list):
+            continue
+        for item in trace.result:
+            if not isinstance(item, dict):
+                continue
+            poi_id = str(item.get("id", "")).strip()
+            name = str(item.get("name", "")).strip()
+            if poi_id and poi_id not in by_id:
+                by_id[poi_id] = item
+            if name and name not in by_name:
+                by_name[name] = item
+
+    return by_id, by_name
+
+
+def _apply_poi_detail_to_model(target: Attraction | Hotel | Meal, detail: Dict[str, Any]) -> None:
+    if detail.get("location") is not None:
+        parsed_location = _parse_location(detail.get("location"))
+        if _has_real_location(parsed_location):
+            target.location = parsed_location
+
+    detail_address = str(detail.get("address", "")).strip()
+    if detail_address and hasattr(target, "address") and not getattr(target, "address", ""):
+        target.address = detail_address
+
+    if isinstance(target, Attraction):
+        detail_type = str(detail.get("type", "")).strip()
+        if detail_type:
+            target.category = detail_type
+
+
+async def _hydrate_selected_poi_details(plan: TripPlan, traces: List[ToolTrace]) -> None:
+    raw_by_id, raw_by_name = _build_selected_poi_lookup(traces)
+    targets_by_poi_id: Dict[str, List[Attraction | Hotel | Meal]] = {}
+
+    def _register_target(target: Attraction | Hotel | Meal, *, poi_id: str = "", name: str = "") -> None:
+        if _has_real_location(target.location):
+            return
+        raw_item = raw_by_id.get(poi_id) if poi_id else None
+        if raw_item is None and name:
+            raw_item = raw_by_name.get(name)
+        if raw_item is None:
+            return
+
+        selected_poi_id = str(raw_item.get("id", "")).strip()
+        if not selected_poi_id:
+            return
+        targets_by_poi_id.setdefault(selected_poi_id, []).append(target)
+
+    for day in plan.days:
+        for attraction in day.attractions:
+            _register_target(
+                attraction,
+                poi_id=str(attraction.poi_id or "").strip(),
+                name=attraction.name,
+            )
+        if day.hotel is not None:
+            _register_target(day.hotel, name=day.hotel.name)
+        for meal in day.meals:
+            _register_target(meal, name=meal.name)
+
+    if not targets_by_poi_id:
+        return
+
+    map_service = get_map_service()
+
+    async def _fetch_detail(poi_id: str) -> tuple[str, Dict[str, Any] | None]:
+        try:
+            detail = await map_service.get_poi_detail(poi_id)
+        except (AppError, ExternalServiceError):
+            return poi_id, None
+        if not isinstance(detail, dict):
+            return poi_id, None
+        return poi_id, detail
+
+    with log_duration(
+        logger,
+        "最终POI详情补全",
+        start_message="📌 开始补全最终入选POI详情...",
+        success_message="📌 最终入选POI详情补全完成",
+    ):
+        results = await asyncio.gather(
+            *[_fetch_detail(poi_id) for poi_id in targets_by_poi_id]
+        )
+
+    success_count = 0
+    for poi_id, detail in results:
+        if detail is None:
+            continue
+        success_count += 1
+        for target in targets_by_poi_id[poi_id]:
+            _apply_poi_detail_to_model(target, detail)
+
+    logger.info(
+        "📌 最终入选POI详情补全统计 | 目标数=%d | 成功=%d",
+        len(targets_by_poi_id),
+        success_count,
+    )
+
+
 def _build_tool_registry() -> ToolRegistry:
     map_service = get_map_service()
     photo_service = get_photo_service()
@@ -782,6 +896,7 @@ def _build_tool_registry() -> ToolRegistry:
             keywords=payload["keywords"],
             city=payload["city"],
             citylimit=payload.get("citylimit", True),
+            enrich_details=False,
         )
         return [item.model_dump() for item in data]
 
@@ -857,6 +972,7 @@ async def _build_plan_without_llm(request: TripRequest, registry: ToolRegistry) 
     )
 
     planner_suggestions = _apply_tool_traces(plan, traces, request)
+    await _hydrate_selected_poi_details(plan, traces)
     plan.overall_suggestions = planner_suggestions or _build_overall_suggestions(plan, request)
     return plan
 
@@ -906,6 +1022,7 @@ async def build_trip_plan(request: TripRequest) -> TripPlan:
         request,
         planner_content=result.content,
     )
+    await _hydrate_selected_poi_details(base_plan, result.traces)
     base_plan.overall_suggestions = planner_suggestions or _build_overall_suggestions(base_plan, request)
     elapsed_ms = (perf_counter() - started_at) * 1000
     logger.info("✅ TripPlan 构建完成 | traces=%d | 总耗时 %.2f ms", len(result.traces), elapsed_ms)

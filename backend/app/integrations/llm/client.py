@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Dict, Sequence
 
@@ -20,10 +21,13 @@ class OpenAICompatibleLLMClient:
         base_url: str,
         model: str,
         timeout_seconds: int = 60,
+        max_concurrency: int = 2,
         client: Any | None = None,
     ) -> None:
         self.model = model
         self.timeout_seconds = timeout_seconds
+        self.max_concurrency = max(1, max_concurrency)
+        self._request_semaphore = asyncio.Semaphore(self.max_concurrency)
         self._client = client or AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -78,10 +82,11 @@ class OpenAICompatibleLLMClient:
     async def chat(self, messages: Sequence[Dict[str, str]]) -> Any:
         """调用 LLM 并返回文本或结构化工具调用。"""
         try:
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=list(messages),
-            )
+            async with self._request_semaphore:
+                response = await self._client.chat.completions.create(
+                    model=self.model,
+                    messages=list(messages),
+                )
         except Exception as exc:
             raise ExternalServiceError(
                 "LLM 调用失败",
@@ -114,5 +119,5 @@ def build_llm_client() -> OpenAICompatibleLLMClient:
         base_url=settings.llm_base_url,
         model=settings.llm_model_id,
         timeout_seconds=settings.llm_timeout,
+        max_concurrency=settings.llm_max_concurrency,
     )
-
