@@ -1,6 +1,6 @@
 # Travel Agent Next
 
-`travel-agent-next` 是智能旅行助手的新仓库版本，目标是在保留原有核心功能与 API 契约的前提下，去除 HelloAgents 依赖，并以 `FastAPI + Vue 3 + TypeScript + Ant Design Vue` 独立实现。
+`travel-agent-next` 是以 `FastAPI + Vue 3 + TypeScript + Ant Design Vue` 实现的智能旅行助手。
 
 ## 目录结构
 
@@ -48,9 +48,3 @@ npm run build
 cd frontend
 npm run test:e2e
 ```
-
-## 当前进度
-
-- 后端 API 骨架与主要工作流已落地
-- 前端页面与核心流程已完成迁移
-- 首页与结果页已完成本轮视觉升级
