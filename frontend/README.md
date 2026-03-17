@@ -28,8 +28,3 @@ cd frontend
 npm run build
 npm run test:e2e
 ```
-
-## 说明
-
-- 页面流程保持为首页填写、结果页展示/编辑/导出
-- 结果页不再从前端额外补发 `/api/poi/photo` 请求
