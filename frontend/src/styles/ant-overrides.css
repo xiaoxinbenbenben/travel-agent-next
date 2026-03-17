@@ -1,0 +1,118 @@
+.ant-layout {
+  background: transparent;
+}
+
+.ant-card,
+.ant-collapse-item,
+.ant-menu,
+.ant-dropdown-menu {
+  border-color: var(--color-border) !important;
+}
+
+.ant-card {
+  border-radius: var(--radius-lg) !important;
+  background: rgba(255, 251, 245, 0.84) !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+
+.ant-card .ant-card-head {
+  border-bottom-color: var(--color-border) !important;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0 !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(249, 242, 230, 0.64)) !important;
+}
+
+.ant-card .ant-card-head-title {
+  color: var(--color-primary-deep) !important;
+  font-weight: 700;
+}
+
+.ant-btn {
+  height: auto;
+  padding: 12px 20px;
+  border-radius: 999px;
+  box-shadow: none;
+  font-weight: 700;
+}
+
+.ant-btn-primary {
+  border-color: var(--color-primary) !important;
+  background: linear-gradient(135deg, var(--color-primary) 0%, #428366 100%) !important;
+}
+
+.ant-btn-default {
+  border-color: rgba(47, 111, 85, 0.16) !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-input-number-input,
+.ant-picker,
+.ant-select-selector {
+  border-radius: var(--radius-md) !important;
+  border-color: rgba(47, 111, 85, 0.14) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-picker:hover,
+.ant-select-selector:hover,
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-picker-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: rgba(47, 111, 85, 0.38) !important;
+  box-shadow: 0 0 0 4px rgba(47, 111, 85, 0.08) !important;
+}
+
+.ant-progress-bg {
+  border-radius: 999px;
+}
+
+.ant-menu {
+  background: rgba(255, 250, 243, 0.84) !important;
+  border-radius: var(--radius-lg) !important;
+}
+
+.ant-menu-item,
+.ant-menu-submenu-title {
+  border-radius: var(--radius-md) !important;
+}
+
+.ant-menu-item-selected {
+  color: var(--color-primary-deep) !important;
+  background: linear-gradient(135deg, rgba(215, 234, 219, 0.84), rgba(255, 244, 225, 0.94)) !important;
+}
+
+.ant-collapse {
+  background: transparent !important;
+  border: none !important;
+}
+
+.ant-collapse > .ant-collapse-item {
+  overflow: hidden;
+  margin-bottom: 16px;
+  background: rgba(255, 252, 248, 0.7);
+  border-radius: var(--radius-lg) !important;
+}
+
+.ant-collapse-header {
+  align-items: center !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(244, 238, 226, 0.82));
+}
+
+.ant-descriptions-bordered .ant-descriptions-item-label,
+.ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: var(--color-border) !important;
+}
+
+.ant-list-grid .ant-col > .ant-list-item {
+  margin-bottom: 0;
+}
+
+.ant-back-top-content {
+  background: transparent !important;
+}

@@ -15,8 +15,10 @@ dist/
 # Env
 .env
 .env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
 backend/.env
-backend/.env.example
 docs/PLAN.md
 docs/reports/
 
